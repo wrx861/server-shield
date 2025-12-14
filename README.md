@@ -74,7 +74,9 @@ chmod 600 ~/.ssh/authorized_keys
 🛡️ ШАГ 1. Установка защиты (В одну строку)
 Зайдите на сервер под root и выполните команду:
 
-```bash <(curl -Ls https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh)```
+```
+bash <(curl -Ls https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh)
+```
 
 ⚙️ Что делает скрипт?
 Скрипт работает в интерактивном режиме и настраивает:
