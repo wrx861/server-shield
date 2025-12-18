@@ -157,11 +157,8 @@ check_existing_firewall() {
         
         local port=$(echo "$line" | awk '{print $1}')
         
-        # Пропускаем дубликаты
-        if echo "$seen_ports" | grep -q "|${port}|"; then
-            continue
-        fi
-        seen_ports="${seen_ports}|${port}|"
+        # Нормализуем порт для проверки дубликатов (убираем /tcp, /udp)
+        local port_num=$(echo "$port" | cut -d'/' -f1)
         
         # Определяем источник
         local from="Anywhere"
@@ -169,8 +166,16 @@ check_existing_firewall() {
             from=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
         fi
         
+        # Создаём уникальный ключ: порт + источник
+        local unique_key="${port_num}_${from}"
+        
+        # Пропускаем дубликаты
+        if echo "$seen_ports" | grep -q "|${unique_key}|"; then
+            continue
+        fi
+        seen_ports="${seen_ports}|${unique_key}|"
+        
         # Определяем тип порта
-        local port_num=$(echo "$port" | cut -d'/' -f1)
         local desc=""
         
         if [[ "$port_num" == "$ssh_port" ]]; then
@@ -186,9 +191,9 @@ check_existing_firewall() {
         fi
         
         if [[ "$from" == "Anywhere" ]]; then
-            echo -e "    ${YELLOW}•${NC} ${CYAN}$port${NC} ← открыт для всех ${desc:+${WHITE}($desc)${NC}}"
+            echo -e "    ${YELLOW}•${NC} ${CYAN}$port_num${NC} ← открыт для всех ${desc:+${WHITE}($desc)${NC}}"
         else
-            echo -e "    ${GREEN}•${NC} ${CYAN}$port${NC} ← только ${CYAN}$from${NC} ${desc:+${WHITE}($desc)${NC}}"
+            echo -e "    ${GREEN}•${NC} ${CYAN}$port_num${NC} ← только ${CYAN}$from${NC} ${desc:+${WHITE}($desc)${NC}}"
         fi
     done
     
@@ -217,34 +222,43 @@ check_existing_firewall() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     
-    # Проверяем SSH открыт для всех или ограничен
+    local issues_found=false
+    local port22_open=false
     local ssh_open_all=false
-    if echo "$ufw_status" | grep -v "(v6)" | grep "ALLOW" | grep -qE "^${ssh_port}|^${ssh_port}/tcp" | grep -q "Anywhere"; then
-        ssh_open_all=true
+    
+    # Проверяем открыт ли порт 22 (стандартный SSH)
+    if echo "$ufw_status" | grep -v "(v6)" | grep -E "^22[^0-9]|^22/tcp" | grep -q "ALLOW"; then
+        port22_open=true
     fi
-    # Более точная проверка
-    if echo "$ufw_status" | grep -v "(v6)" | grep "$ssh_port" | grep -q "Anywhere"; then
+    
+    # Проверяем открыт ли текущий SSH порт для всех
+    if echo "$ufw_status" | grep -v "(v6)" | grep -E "^${ssh_port}[^0-9]|^${ssh_port}/tcp" | grep -q "Anywhere"; then
         ssh_open_all=true
     fi
     
-    # Показываем рекомендации
-    local recommendations=0
+    # Показываем проблемы
     
+    # 1. Порт 22 открыт, но SSH на другом порту
+    if [[ "$port22_open" == true ]] && [[ "$ssh_port" != "22" ]]; then
+        issues_found=true
+        echo -e "  ${RED}⚠️${NC}  Порт 22 открыт, но SSH работает на порту $ssh_port"
+        echo -e "      ${WHITE}Рекомендация:${NC} закрыть неиспользуемый порт 22"
+    fi
+    
+    # 2. SSH порт открыт для всех
     if [[ "$ssh_open_all" == true ]]; then
-        recommendations=$((recommendations + 1))
+        issues_found=true
         echo -e "  ${YELLOW}⚠️${NC}  SSH (порт $ssh_port) открыт для ВСЕХ IP"
-        echo -e "      ${WHITE}Рекомендация:${NC} ограничить доступ по IP админа"
-    else
-        echo -e "  ${GREEN}✓${NC}  SSH доступ ограничен по IP"
+        echo -e "      ${WHITE}Рекомендация:${NC} ограничить доступ по IP"
+    elif [[ "$ssh_port" != "22" ]] || [[ "$port22_open" == false ]]; then
+        echo -e "  ${GREEN}✓${NC}  SSH (порт $ssh_port) защищён"
     fi
     
-    # Проверяем default policy
-    local default_deny=false
+    # 3. Проверяем default policy
     if ufw status verbose 2>/dev/null | grep -q "deny (incoming)"; then
-        default_deny=true
         echo -e "  ${GREEN}✓${NC}  Входящие подключения блокируются по умолчанию"
     else
-        recommendations=$((recommendations + 1))
+        issues_found=true
         echo -e "  ${YELLOW}⚠️${NC}  Входящие подключения НЕ блокируются по умолчанию"
     fi
     
@@ -254,18 +268,24 @@ check_existing_firewall() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     
-    if [[ "$ssh_open_all" == true ]]; then
-        echo -e "  ${WHITE}1)${NC} 🔒 Ограничить SSH по IP (рекомендуется)"
-        echo -e "      ${CYAN}Закроем SSH порт для всех, кроме вашего IP${NC}"
+    if [[ "$issues_found" == true ]]; then
+        echo -e "  ${WHITE}1)${NC} 🔒 Исправить проблемы (рекомендуется)"
+        if [[ "$port22_open" == true ]] && [[ "$ssh_port" != "22" ]]; then
+            echo -e "      ${CYAN}• Закроем порт 22${NC}"
+        fi
+        if [[ "$ssh_open_all" == true ]]; then
+            echo -e "      ${CYAN}• Ограничим SSH по IP админа/панели${NC}"
+        fi
         echo ""
-        echo -e "  ${WHITE}2)${NC} ✅ Оставить текущие правила"
-        echo -e "      ${CYAN}Ничего не меняем в firewall${NC}"
+        echo -e "  ${WHITE}2)${NC} ✅ Оставить как есть"
+        echo -e "      ${CYAN}Ничего не меняем${NC}"
         echo ""
         echo -e "  ${WHITE}3)${NC} 🔄 Полная перенастройка"
         echo -e "      ${CYAN}Сбросить всё и настроить с нуля${NC}"
     else
+        echo -e "  ${GREEN}✓ У вас уже хорошо настроено!${NC}"
+        echo ""
         echo -e "  ${WHITE}1)${NC} ✅ Оставить текущие правила (рекомендуется)"
-        echo -e "      ${CYAN}У вас уже хорошо настроено${NC}"
         echo ""
         echo -e "  ${WHITE}2)${NC} 🔄 Полная перенастройка"
         echo -e "      ${CYAN}Сбросить всё и настроить с нуля${NC}"
@@ -275,12 +295,16 @@ check_existing_firewall() {
     read -p "  Ваш выбор [1]: " fw_choice
     fw_choice=${fw_choice:-1}
     
+    # Сохраняем флаги для использования в apply_protection
+    export PORT22_OPEN="$port22_open"
+    export SSH_OPEN_ALL="$ssh_open_all"
+    
     # Преобразуем выбор в FIREWALL_MODE
-    if [[ "$ssh_open_all" == true ]]; then
+    if [[ "$issues_found" == true ]]; then
         case "$fw_choice" in
             1)
-                # Ограничить SSH по IP
-                FIREWALL_MODE="restrict_ssh"
+                # Исправить проблемы
+                FIREWALL_MODE="fix_issues"
                 ;;
             2)
                 # Оставить как есть
@@ -291,7 +315,7 @@ check_existing_firewall() {
                 FIREWALL_MODE="reset"
                 ;;
             *)
-                FIREWALL_MODE="restrict_ssh"
+                FIREWALL_MODE="fix_issues"
                 ;;
         esac
     else
@@ -489,50 +513,76 @@ apply_protection() {
                 setup_firewall_node "$ADMIN_IP" "$PANEL_IP" "$SSH_PORT" "$EXTRA_PORTS" "true"
             fi
             ;;
-        "restrict_ssh")
-            # Ограничить SSH по IP, остальное оставить
-            log_step "Ограничение SSH доступа..."
+        "fix_issues")
+            # Исправить найденные проблемы
+            log_step "Исправление проблем безопасности..."
             
             # Отключаем IPv6 в UFW
             if [[ -f "/etc/default/ufw" ]] && grep -q "^IPV6=yes" "/etc/default/ufw"; then
                 sed -i 's/^IPV6=yes/IPV6=no/' "/etc/default/ufw"
             fi
             
-            # Удаляем текущие правила SSH (открытые для всех)
-            ufw delete allow ${SSH_PORT}/tcp 2>/dev/null
-            ufw delete allow ${SSH_PORT} 2>/dev/null
+            # 1. Закрываем порт 22 если SSH на другом порту
+            if [[ "${PORT22_OPEN}" == "true" ]] && [[ "$SSH_PORT" != "22" ]]; then
+                log_step "Закрываем неиспользуемый порт 22..."
+                ufw delete allow 22/tcp 2>/dev/null
+                ufw delete allow 22 2>/dev/null
+                # Удаляем все правила с портом 22
+                while ufw status numbered | grep -q " 22[^0-9]"; do
+                    local rule_num=$(ufw status numbered | grep " 22[^0-9]" | head -1 | grep -oP '^\[\s*\K\d+')
+                    [[ -n "$rule_num" ]] && echo "y" | ufw delete "$rule_num" 2>/dev/null || break
+                done
+                log_info "Порт 22 закрыт"
+            fi
             
-            # Для ноды: SSH доступ для админа И панели
-            if [[ "$SERVER_TYPE" == "2" ]]; then
-                if [[ -n "$ADMIN_IP" ]]; then
-                    ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp comment 'Admin SSH'
-                    log_info "SSH доступ для админа: $ADMIN_IP"
-                fi
-                if [[ -n "$PANEL_IP" ]]; then
-                    # Панель получает полный доступ (включая SSH)
-                    if ! ufw status | grep -q "$PANEL_IP"; then
-                        ufw allow from "$PANEL_IP" comment 'Panel Full Access'
-                        log_info "Полный доступ для панели: $PANEL_IP"
+            # 2. Ограничиваем SSH по IP если открыт для всех
+            if [[ "${SSH_OPEN_ALL}" == "true" ]]; then
+                log_step "Ограничение SSH доступа..."
+                
+                # Удаляем текущие правила SSH (открытые для всех)
+                ufw delete allow ${SSH_PORT}/tcp 2>/dev/null
+                ufw delete allow ${SSH_PORT} 2>/dev/null
+                
+                # Для ноды: SSH доступ для админа И панели
+                if [[ "$SERVER_TYPE" == "2" ]]; then
+                    if [[ -n "$ADMIN_IP" ]]; then
+                        ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp comment 'Admin SSH'
+                        log_info "SSH доступ для админа: $ADMIN_IP"
+                    fi
+                    if [[ -n "$PANEL_IP" ]]; then
+                        # Панель получает полный доступ (включая SSH)
+                        if ! ufw status | grep -q "$PANEL_IP"; then
+                            ufw allow from "$PANEL_IP" comment 'Panel Full Access'
+                            log_info "Полный доступ для панели: $PANEL_IP"
+                        fi
+                    fi
+                    # Если ни админ, ни панель не указаны — предупреждаем но открываем
+                    if [[ -z "$ADMIN_IP" ]] && [[ -z "$PANEL_IP" ]]; then
+                        ufw allow "$SSH_PORT"/tcp comment 'SSH'
+                        log_warn "SSH оставлен открытым (не указан IP админа/панели)"
+                    fi
+                else
+                    # Для панели: SSH только для админа
+                    if [[ -n "$ADMIN_IP" ]]; then
+                        ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp comment 'Admin SSH'
+                        log_info "SSH доступ для админа: $ADMIN_IP"
+                    else
+                        ufw allow "$SSH_PORT"/tcp comment 'SSH'
+                        log_warn "SSH оставлен открытым (не указан IP админа)"
                     fi
                 fi
-                # Если ни админ, ни панель не указаны — предупреждаем но открываем
-                if [[ -z "$ADMIN_IP" ]] && [[ -z "$PANEL_IP" ]]; then
-                    ufw allow "$SSH_PORT"/tcp comment 'SSH'
-                    log_warn "SSH оставлен открытым (не указан IP админа/панели)"
-                fi
-            else
-                # Для панели: SSH только для админа
-                if [[ -n "$ADMIN_IP" ]]; then
-                    ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp comment 'Admin SSH'
-                    log_info "SSH доступ для админа: $ADMIN_IP"
-                else
-                    ufw allow "$SSH_PORT"/tcp comment 'SSH'
-                    log_warn "SSH оставлен открытым (не указан IP админа)"
+            fi
+            
+            # Для ноды: убеждаемся что панель имеет доступ
+            if [[ "$SERVER_TYPE" == "2" ]] && [[ -n "$PANEL_IP" ]]; then
+                if ! ufw status | grep -q "$PANEL_IP"; then
+                    log_step "Добавляем доступ для панели $PANEL_IP..."
+                    ufw allow from "$PANEL_IP" comment 'Panel Full Access'
                 fi
             fi
             
             ufw --force reload 2>/dev/null
-            log_info "SSH доступ ограничен"
+            log_info "Проблемы безопасности исправлены"
             ;;
         "keep"|*)
             # Оставить как есть
@@ -541,7 +591,6 @@ apply_protection() {
             # Отключаем IPv6 в UFW (это безопасно)
             if [[ -f "/etc/default/ufw" ]] && grep -q "^IPV6=yes" "/etc/default/ufw"; then
                 sed -i 's/^IPV6=yes/IPV6=no/' "/etc/default/ufw"
-                ufw --force reload 2>/dev/null
             fi
             
             # Только убедимся что SSH порт открыт
@@ -553,6 +602,20 @@ apply_protection() {
             fi
             ;;
     esac
+    
+    # КРИТИЧНО: Для ноды ВСЕГДА проверяем доступ панели
+    if [[ "$SERVER_TYPE" == "2" ]] && [[ -n "$PANEL_IP" ]]; then
+        if ! ufw status | grep -q "$PANEL_IP"; then
+            log_step "Добавляем доступ для панели $PANEL_IP..."
+            ufw allow from "$PANEL_IP" comment 'Panel Full Access'
+            log_info "Панель $PANEL_IP получила полный доступ"
+        else
+            log_info "Доступ для панели $PANEL_IP уже настроен"
+        fi
+    fi
+    
+    # Перезагружаем UFW после всех изменений
+    ufw --force reload 2>/dev/null
     
     echo -e "   Настройка Kernel Hardening..."
     apply_kernel_hardening
