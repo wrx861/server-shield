@@ -1,4 +1,4 @@
-                        # 🛡️ Server Security Shield
+#🛡️ Server Security Shield
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-2.2-blue" alt="Version">
