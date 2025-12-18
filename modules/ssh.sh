@@ -221,10 +221,19 @@ change_ssh_port() {
     if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
         log_step "Открываем порт $new_port в UFW..."
         
-        # Если есть ADMIN_IP - открываем ТОЛЬКО для него
+        # Сначала удаляем ВСЕ существующие правила для нового порта
+        # (чтобы не было дубликатов "для всех" и "для IP")
+        ufw delete allow ${new_port}/tcp 2>/dev/null
+        ufw delete allow ${new_port} 2>/dev/null
+        # Удаляем правила с IP для этого порта
+        ufw status numbered 2>/dev/null | grep " $new_port" | grep -oP '^\[\s*\K\d+' | sort -rn | while read num; do
+            [[ -n "$num" ]] && echo "y" | ufw delete $num 2>/dev/null
+        done
+        
+        # Теперь добавляем правильное правило
         if [[ -n "$admin_ip" ]]; then
             ufw allow from "$admin_ip" to any port "$new_port" proto tcp comment 'Admin SSH'
-            log_info "SSH порт $new_port открыт только для IP: $admin_ip"
+            log_info "SSH порт $new_port открыт ТОЛЬКО для IP: $admin_ip"
         else
             ufw allow ${new_port}/tcp comment 'SSH'
             log_info "SSH порт $new_port открыт для всех"
