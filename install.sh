@@ -717,8 +717,10 @@ apply_protection() {
         setup_ssh_login_notify
     fi
     
-    echo -e "   Настройка Rootkit Hunter..."
-    setup_rkhunter
+    # Rootkit Hunter по умолчанию ВЫКЛЮЧЕН (можно включить через shield → Rootkit)
+    # echo -e "   Настройка Rootkit Hunter..."
+    # setup_rkhunter
+    save_config "RKHUNTER_ENABLED" "false"
     
     echo -e "   Настройка Auto Updates..."
     echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
@@ -751,7 +753,7 @@ show_result() {
         echo -e "    ⚠️  Telegram (настройте позже: ${CYAN}shield telegram${NC})"
     fi
     
-    echo -e "    ✅ Rootkit сканирование"
+    echo -e "    ⚪ Rootkit сканирование (выкл, включить: ${CYAN}shield → Rootkit${NC})"
     echo -e "    ✅ Auto Updates"
     echo -e "    ✅ Бэкап создан"
     echo ""
