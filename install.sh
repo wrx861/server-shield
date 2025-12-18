@@ -109,6 +109,211 @@ check_ssh_keys() {
 }
 
 # =====================================================
+# ПРОВЕРКА ТЕКУЩЕГО FIREWALL
+# =====================================================
+
+check_existing_firewall() {
+    # Проверяем установлен ли UFW и есть ли правила
+    if ! command -v ufw &> /dev/null; then
+        return 0
+    fi
+    
+    local ufw_status=$(ufw status 2>/dev/null)
+    
+    # Если UFW не активен — пропускаем
+    if echo "$ufw_status" | grep -q "inactive"; then
+        return 0
+    fi
+    
+    # Считаем количество правил (только IPv4)
+    local rules_count=$(echo "$ufw_status" | grep "ALLOW" | grep -v "(v6)" | wc -l)
+    
+    if [[ "$rules_count" -eq 0 ]]; then
+        return 0
+    fi
+    
+    # Получаем текущий SSH порт
+    local ssh_port=$(grep "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+    ssh_port=${ssh_port:-22}
+    
+    # Есть правила - показываем их
+    echo ""
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║  ⚠️  ОБНАРУЖЕНЫ СУЩЕСТВУЮЩИЕ ПРАВИЛА FIREWALL        ║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${WHITE}UFW статус:${NC} ${GREEN}Активен${NC}"
+    echo -e "  ${WHITE}Правил (IPv4):${NC} ${CYAN}$rules_count${NC}"
+    echo ""
+    echo -e "  ${WHITE}Текущие открытые порты:${NC}"
+    
+    # Показываем правила (только IPv4, без дублей)
+    local seen_ports=""
+    echo "$ufw_status" | grep "ALLOW" | while read line; do
+        # Пропускаем IPv6
+        if echo "$line" | grep -qE "\(v6\)|::"; then
+            continue
+        fi
+        
+        local port=$(echo "$line" | awk '{print $1}')
+        
+        # Пропускаем дубликаты
+        if echo "$seen_ports" | grep -q "|${port}|"; then
+            continue
+        fi
+        seen_ports="${seen_ports}|${port}|"
+        
+        # Определяем источник
+        local from="Anywhere"
+        if echo "$line" | grep -qE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+            from=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+        fi
+        
+        # Определяем тип порта
+        local port_num=$(echo "$port" | cut -d'/' -f1)
+        local desc=""
+        
+        if [[ "$port_num" == "$ssh_port" ]]; then
+            desc="SSH"
+        else
+            case "$port_num" in
+                22) desc="SSH" ;;
+                80) desc="HTTP" ;;
+                443) desc="HTTPS/VPN" ;;
+                2222) desc="Panel-Node" ;;
+                3306) desc="MySQL" ;;
+            esac
+        fi
+        
+        if [[ "$from" == "Anywhere" ]]; then
+            echo -e "    ${YELLOW}•${NC} ${CYAN}$port${NC} ← открыт для всех ${desc:+${WHITE}($desc)${NC}}"
+        else
+            echo -e "    ${GREEN}•${NC} ${CYAN}$port${NC} ← только ${CYAN}$from${NC} ${desc:+${WHITE}($desc)${NC}}"
+        fi
+    done
+    
+    # Показываем whitelist IP (полный доступ)
+    local whitelist_found=false
+    echo ""
+    echo -e "  ${WHITE}IP с полным доступом:${NC}"
+    echo "$ufw_status" | grep "ALLOW" | grep -v "(v6)" | while read line; do
+        if echo "$line" | grep -q "^Anywhere.*ALLOW"; then
+            local ip=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+            if [[ -n "$ip" ]]; then
+                echo -e "    ${GREEN}•${NC} $ip"
+                whitelist_found=true
+            fi
+        fi
+    done
+    
+    if [[ "$whitelist_found" == false ]]; then
+        echo -e "    ${YELLOW}Нет${NC}"
+    fi
+    
+    # Анализируем текущие правила
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${WHITE}🔍 АНАЛИЗ БЕЗОПАСНОСТИ${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    
+    # Проверяем SSH открыт для всех или ограничен
+    local ssh_open_all=false
+    if echo "$ufw_status" | grep -v "(v6)" | grep "ALLOW" | grep -qE "^${ssh_port}|^${ssh_port}/tcp" | grep -q "Anywhere"; then
+        ssh_open_all=true
+    fi
+    # Более точная проверка
+    if echo "$ufw_status" | grep -v "(v6)" | grep "$ssh_port" | grep -q "Anywhere"; then
+        ssh_open_all=true
+    fi
+    
+    # Показываем рекомендации
+    local recommendations=0
+    
+    if [[ "$ssh_open_all" == true ]]; then
+        recommendations=$((recommendations + 1))
+        echo -e "  ${YELLOW}⚠️${NC}  SSH (порт $ssh_port) открыт для ВСЕХ IP"
+        echo -e "      ${WHITE}Рекомендация:${NC} ограничить доступ по IP админа"
+    else
+        echo -e "  ${GREEN}✓${NC}  SSH доступ ограничен по IP"
+    fi
+    
+    # Проверяем default policy
+    local default_deny=false
+    if ufw status verbose 2>/dev/null | grep -q "deny (incoming)"; then
+        default_deny=true
+        echo -e "  ${GREEN}✓${NC}  Входящие подключения блокируются по умолчанию"
+    else
+        recommendations=$((recommendations + 1))
+        echo -e "  ${YELLOW}⚠️${NC}  Входящие подключения НЕ блокируются по умолчанию"
+    fi
+    
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${WHITE}Что сделать?${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    
+    if [[ "$ssh_open_all" == true ]]; then
+        echo -e "  ${WHITE}1)${NC} 🔒 Ограничить SSH по IP (рекомендуется)"
+        echo -e "      ${CYAN}Закроем SSH порт для всех, кроме вашего IP${NC}"
+        echo ""
+        echo -e "  ${WHITE}2)${NC} ✅ Оставить текущие правила"
+        echo -e "      ${CYAN}Ничего не меняем в firewall${NC}"
+        echo ""
+        echo -e "  ${WHITE}3)${NC} 🔄 Полная перенастройка"
+        echo -e "      ${CYAN}Сбросить всё и настроить с нуля${NC}"
+    else
+        echo -e "  ${WHITE}1)${NC} ✅ Оставить текущие правила (рекомендуется)"
+        echo -e "      ${CYAN}У вас уже хорошо настроено${NC}"
+        echo ""
+        echo -e "  ${WHITE}2)${NC} 🔄 Полная перенастройка"
+        echo -e "      ${CYAN}Сбросить всё и настроить с нуля${NC}"
+    fi
+    
+    echo ""
+    read -p "  Ваш выбор [1]: " fw_choice
+    fw_choice=${fw_choice:-1}
+    
+    # Преобразуем выбор в FIREWALL_MODE
+    if [[ "$ssh_open_all" == true ]]; then
+        case "$fw_choice" in
+            1)
+                # Ограничить SSH по IP
+                FIREWALL_MODE="restrict_ssh"
+                ;;
+            2)
+                # Оставить как есть
+                FIREWALL_MODE="keep"
+                ;;
+            3)
+                # Полная перенастройка
+                FIREWALL_MODE="reset"
+                ;;
+            *)
+                FIREWALL_MODE="restrict_ssh"
+                ;;
+        esac
+    else
+        case "$fw_choice" in
+            1)
+                # Оставить как есть
+                FIREWALL_MODE="keep"
+                ;;
+            2)
+                # Полная перенастройка
+                FIREWALL_MODE="reset"
+                ;;
+            *)
+                FIREWALL_MODE="keep"
+                ;;
+        esac
+    fi
+    
+    export FIREWALL_MODE
+}
+
+# =====================================================
 # СБОР НАСТРОЕК
 # =====================================================
 
@@ -117,6 +322,9 @@ collect_settings() {
     echo -e "${CYAN}══════════════════════════════════════════════════════${NC}"
     echo -e "  ${WHITE}НАСТРОЙКА ЗАЩИТЫ${NC}"
     echo -e "${CYAN}══════════════════════════════════════════════════════${NC}"
+    
+    # 0. Проверяем текущие правила UFW
+    check_existing_firewall
     
     # 1. Роль сервера
     echo ""
@@ -150,13 +358,17 @@ collect_settings() {
     fi
     
     # 4. SSH порт
+    # Определяем текущий порт из sshd_config
+    local current_ssh_port=$(grep "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+    current_ssh_port=${current_ssh_port:-22}
+    
     echo ""
-    echo -e "${WHITE}4. Новый порт SSH${NC} (текущий: 22)"
+    echo -e "${WHITE}4. Порт SSH${NC} (текущий: ${CYAN}$current_ssh_port${NC})"
     echo -e "   ${YELLOW}⚠️  Порт 2222 занят панелью для связи с нодами!${NC}"
     echo -e "   Рекомендуется: 22222, 54321, 33322 и т.п."
-    echo -e "   Нажмите ${WHITE}Enter${NC} чтобы оставить 22"
+    echo -e "   Нажмите ${WHITE}Enter${NC} чтобы оставить ${CYAN}$current_ssh_port${NC}"
     read -p "   SSH порт: " SSH_PORT
-    SSH_PORT=${SSH_PORT:-22}
+    SSH_PORT=${SSH_PORT:-$current_ssh_port}
     
     # 5. Доп. VPN порты (для нод)
     EXTRA_PORTS=""
@@ -266,11 +478,81 @@ apply_protection() {
     harden_ssh "$SSH_PORT"
     
     echo -e "   Настройка Firewall..."
-    if [[ "$SERVER_TYPE" == "1" ]]; then
-        setup_firewall_panel "$ADMIN_IP" "$SSH_PORT"
-    else
-        setup_firewall_node "$ADMIN_IP" "$PANEL_IP" "$SSH_PORT" "$EXTRA_PORTS"
-    fi
+    # Учитываем выбор пользователя по firewall
+    case "${FIREWALL_MODE}" in
+        "reset")
+            # Полный сброс и надёжные правила
+            log_step "Полная перенастройка firewall..."
+            if [[ "$SERVER_TYPE" == "1" ]]; then
+                setup_firewall_panel "$ADMIN_IP" "$SSH_PORT" "true"
+            else
+                setup_firewall_node "$ADMIN_IP" "$PANEL_IP" "$SSH_PORT" "$EXTRA_PORTS" "true"
+            fi
+            ;;
+        "restrict_ssh")
+            # Ограничить SSH по IP, остальное оставить
+            log_step "Ограничение SSH доступа..."
+            
+            # Отключаем IPv6 в UFW
+            if [[ -f "/etc/default/ufw" ]] && grep -q "^IPV6=yes" "/etc/default/ufw"; then
+                sed -i 's/^IPV6=yes/IPV6=no/' "/etc/default/ufw"
+            fi
+            
+            # Удаляем текущие правила SSH (открытые для всех)
+            ufw delete allow ${SSH_PORT}/tcp 2>/dev/null
+            ufw delete allow ${SSH_PORT} 2>/dev/null
+            
+            # Для ноды: SSH доступ для админа И панели
+            if [[ "$SERVER_TYPE" == "2" ]]; then
+                if [[ -n "$ADMIN_IP" ]]; then
+                    ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp comment 'Admin SSH'
+                    log_info "SSH доступ для админа: $ADMIN_IP"
+                fi
+                if [[ -n "$PANEL_IP" ]]; then
+                    # Панель получает полный доступ (включая SSH)
+                    if ! ufw status | grep -q "$PANEL_IP"; then
+                        ufw allow from "$PANEL_IP" comment 'Panel Full Access'
+                        log_info "Полный доступ для панели: $PANEL_IP"
+                    fi
+                fi
+                # Если ни админ, ни панель не указаны — предупреждаем но открываем
+                if [[ -z "$ADMIN_IP" ]] && [[ -z "$PANEL_IP" ]]; then
+                    ufw allow "$SSH_PORT"/tcp comment 'SSH'
+                    log_warn "SSH оставлен открытым (не указан IP админа/панели)"
+                fi
+            else
+                # Для панели: SSH только для админа
+                if [[ -n "$ADMIN_IP" ]]; then
+                    ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp comment 'Admin SSH'
+                    log_info "SSH доступ для админа: $ADMIN_IP"
+                else
+                    ufw allow "$SSH_PORT"/tcp comment 'SSH'
+                    log_warn "SSH оставлен открытым (не указан IP админа)"
+                fi
+            fi
+            
+            ufw --force reload 2>/dev/null
+            log_info "SSH доступ ограничен"
+            ;;
+        "keep"|*)
+            # Оставить как есть
+            log_info "Firewall оставлен без изменений"
+            
+            # Отключаем IPv6 в UFW (это безопасно)
+            if [[ -f "/etc/default/ufw" ]] && grep -q "^IPV6=yes" "/etc/default/ufw"; then
+                sed -i 's/^IPV6=yes/IPV6=no/' "/etc/default/ufw"
+                ufw --force reload 2>/dev/null
+            fi
+            
+            # Только убедимся что SSH порт открыт
+            if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
+                if ! ufw status | grep -q "$SSH_PORT"; then
+                    log_warn "Открываем SSH порт $SSH_PORT..."
+                    ufw allow "$SSH_PORT"/tcp comment 'SSH'
+                fi
+            fi
+            ;;
+    esac
     
     echo -e "   Настройка Kernel Hardening..."
     apply_kernel_hardening
