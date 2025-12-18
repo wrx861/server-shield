@@ -64,7 +64,7 @@ ssh-copy-id -i ~/.ssh/id_ed25519.pub root@IP_сервера
 ### Запуск установки
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/ваш-репо/server-shield/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh)
 ```
 
 Скрипт спросит:
