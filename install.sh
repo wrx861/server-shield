@@ -621,7 +621,8 @@ apply_protection() {
     apply_kernel_hardening
     
     echo -e "   Настройка Fail2Ban..."
-    setup_fail2ban "$SSH_PORT" "$TG_TOKEN" "$TG_CHAT_ID"
+    # Передаём IP админа для whitelist (5-й параметр)
+    setup_fail2ban "$SSH_PORT" "$TG_TOKEN" "$TG_CHAT_ID" "86400" "$ADMIN_IP"
     
     if [[ -n "$TG_TOKEN" ]] && [[ -n "$TG_CHAT_ID" ]]; then
         echo -e "   Настройка Telegram..."
