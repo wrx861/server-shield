@@ -63,6 +63,7 @@ setup_fail2ban() {
     local tg_token="$2"
     local tg_chat_id="$3"
     local bantime="${4:-86400}"  # По умолчанию 24 часа
+    local admin_ip="${5:-}"      # IP админа для whitelist
     
     log_step "Настройка Fail2Ban..."
     
@@ -84,6 +85,41 @@ setup_fail2ban() {
          telegram-shield[name=sshd]"
     fi
     
+    # Собираем ignoreip: localhost + IP админа + текущее подключение + whitelist
+    local ignoreip="127.0.0.1/8 ::1"
+    
+    # Добавляем IP админа если указан
+    if [[ -n "$admin_ip" ]]; then
+        ignoreip="$ignoreip $admin_ip"
+        # Также сохраняем в whitelist файл
+        mkdir -p "$(dirname "$F2B_WHITELIST")"
+        if ! grep -q "^$admin_ip$" "$F2B_WHITELIST" 2>/dev/null; then
+            echo "# Admin IP (добавлен при установке)" >> "$F2B_WHITELIST"
+            echo "$admin_ip" >> "$F2B_WHITELIST"
+        fi
+    fi
+    
+    # Добавляем IP текущего SSH подключения (защита от самобана)
+    local current_ip=$(who am i 2>/dev/null | awk '{print $5}' | tr -d '()' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+    if [[ -n "$current_ip" ]] && [[ "$current_ip" != "$admin_ip" ]]; then
+        ignoreip="$ignoreip $current_ip"
+        # Сохраняем в whitelist
+        if ! grep -q "^$current_ip$" "$F2B_WHITELIST" 2>/dev/null; then
+            echo "# Current session IP (автоопределение)" >> "$F2B_WHITELIST"
+            echo "$current_ip" >> "$F2B_WHITELIST"
+        fi
+        log_info "Ваш текущий IP $current_ip добавлен в whitelist"
+    fi
+    
+    # Добавляем IP из существующего whitelist файла
+    if [[ -f "$F2B_WHITELIST" ]]; then
+        local whitelist_ips=$(grep -v "^#" "$F2B_WHITELIST" | grep -v "^$" | tr '\n' ' ')
+        ignoreip="$ignoreip $whitelist_ips"
+    fi
+    
+    # Убираем дубликаты
+    ignoreip=$(echo "$ignoreip" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    
     # Создаём основной конфиг
     cat > "$FAIL2BAN_JAIL" << JAIL
 # ============================================
@@ -95,7 +131,7 @@ bantime = $bantime
 findtime = 10m
 maxretry = 5
 backend = systemd
-ignoreip = 127.0.0.1/8 ::1
+ignoreip = $ignoreip
 banaction = iptables-multiport
 banaction_allports = iptables-allports
 
@@ -1085,22 +1121,80 @@ get_jail_status() {
     fi
 }
 
+# Получить IP текущего SSH подключения
+get_current_session_ip() {
+    # Пробуем несколько способов определить IP
+    local ip=""
+    
+    # Способ 1: who am i
+    ip=$(who am i 2>/dev/null | awk '{print $5}' | tr -d '()' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+    [[ -n "$ip" ]] && echo "$ip" && return
+    
+    # Способ 2: SSH_CLIENT
+    ip=$(echo "$SSH_CLIENT" 2>/dev/null | awk '{print $1}')
+    [[ -n "$ip" ]] && echo "$ip" && return
+    
+    # Способ 3: SSH_CONNECTION
+    ip=$(echo "$SSH_CONNECTION" 2>/dev/null | awk '{print $1}')
+    [[ -n "$ip" ]] && echo "$ip" && return
+    
+    echo ""
+}
+
+# Автодобавление текущего IP в whitelist
+auto_whitelist_current_ip() {
+    local current_ip=$(get_current_session_ip)
+    
+    if [[ -n "$current_ip" ]]; then
+        if ! grep -q "^$current_ip$" "$F2B_WHITELIST" 2>/dev/null; then
+            add_to_whitelist "$current_ip" "Auto: текущая сессия $(date '+%Y-%m-%d')"
+            log_info "Ваш IP $current_ip автоматически добавлен в whitelist"
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Меню whitelist
 whitelist_menu() {
     while true; do
         print_header
         print_section "📋 Whitelist - Доверенные IP"
         
+        # Определяем текущий IP
+        local current_ip=$(get_current_session_ip)
+        local current_in_whitelist=false
+        
+        if [[ -n "$current_ip" ]]; then
+            if grep -q "^$current_ip$" "$F2B_WHITELIST" 2>/dev/null; then
+                current_in_whitelist=true
+            fi
+        fi
+        
         echo ""
         echo -e "  ${WHITE}IP в whitelist никогда не будут забанены${NC}"
-        echo -e "  ${CYAN}Добавьте сюда: ноды, боты, API сервера${NC}"
+        echo ""
+        
+        # Показываем текущий IP
+        if [[ -n "$current_ip" ]]; then
+            if [[ "$current_in_whitelist" == true ]]; then
+                echo -e "  Ваш IP: ${GREEN}$current_ip${NC} ${GREEN}✓ в whitelist${NC}"
+            else
+                echo -e "  Ваш IP: ${YELLOW}$current_ip${NC} ${RED}✗ НЕ в whitelist!${NC}"
+            fi
+        fi
+        
         echo ""
         
         local whitelist=$(get_whitelist)
         if [[ -n "$whitelist" ]]; then
             echo -e "  ${WHITE}Текущий whitelist:${NC}"
             echo "$whitelist" | while read ip; do
-                echo -e "    ${GREEN}•${NC} $ip"
+                if [[ "$ip" == "$current_ip" ]]; then
+                    echo -e "    ${GREEN}•${NC} $ip ${CYAN}(вы)${NC}"
+                else
+                    echo -e "    ${GREEN}•${NC} $ip"
+                fi
             done
         else
             echo -e "  ${YELLOW}Whitelist пуст${NC}"
@@ -1109,20 +1203,37 @@ whitelist_menu() {
         echo ""
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        echo -e "  ${WHITE}1)${NC} Добавить IP"
-        echo -e "  ${WHITE}2)${NC} Удалить IP"
+        
+        # Показываем опцию добавить себя если не в whitelist
+        if [[ -n "$current_ip" ]] && [[ "$current_in_whitelist" == false ]]; then
+            echo -e "  ${WHITE}1)${NC} 🛡️  ${GREEN}Добавить мой IP ($current_ip)${NC}"
+            echo -e "  ${WHITE}2)${NC} Добавить другой IP"
+        else
+            echo -e "  ${WHITE}1)${NC} Добавить IP"
+        fi
+        echo -e "  ${WHITE}3)${NC} Удалить IP"
         echo -e "  ${WHITE}0)${NC} Назад"
         echo ""
         read -p "Выберите действие: " choice
         
         case $choice in
             1)
+                if [[ -n "$current_ip" ]] && [[ "$current_in_whitelist" == false ]]; then
+                    add_to_whitelist "$current_ip" "Админ (добавлен вручную)"
+                else
+                    echo ""
+                    read -p "IP для whitelist: " ip
+                    read -p "Комментарий (опционально): " comment
+                    add_to_whitelist "$ip" "$comment"
+                fi
+                ;;
+            2)
                 echo ""
                 read -p "IP для whitelist: " ip
                 read -p "Комментарий (опционально): " comment
                 add_to_whitelist "$ip" "$comment"
                 ;;
-            2)
+            3)
                 echo ""
                 read -p "IP для удаления: " ip
                 remove_from_whitelist "$ip"
