@@ -196,10 +196,27 @@ change_ssh_port() {
     
     log_step "Смена SSH порта: $old_port → $new_port"
     
+    # Получаем ADMIN_IP из конфига (если был указан при установке)
+    local admin_ip=$(get_config "ADMIN_IP" "")
+    
+    # Также проверяем есть ли правило с IP ограничением для старого порта
+    if [[ -z "$admin_ip" ]]; then
+        # Пробуем найти IP из текущих правил UFW
+        admin_ip=$(ufw status | grep -E "^${old_port}[^0-9]|^${old_port}/" | grep -v "Anywhere" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    fi
+    
     # 1. СНАЧАЛА открываем НОВЫЙ порт в UFW (до изменения SSH!)
     if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
         log_step "Открываем порт $new_port в UFW..."
-        ufw allow ${new_port}/tcp comment 'SSH'
+        
+        # Если есть ADMIN_IP - открываем ТОЛЬКО для него
+        if [[ -n "$admin_ip" ]]; then
+            ufw allow from "$admin_ip" to any port "$new_port" proto tcp comment 'Admin SSH'
+            log_info "SSH порт $new_port открыт только для IP: $admin_ip"
+        else
+            ufw allow ${new_port}/tcp comment 'SSH'
+            log_info "SSH порт $new_port открыт для всех"
+        fi
         
         # Проверяем что порт открылся
         if ! ufw status | grep -q "$new_port"; then
@@ -249,26 +266,48 @@ change_ssh_port() {
         log_error "SSH не запустился на порту $new_port!"
         log_warn "Откат изменений..."
         
-        # Откат
+        # Откат конфига
         sed -i "s/^Port.*/Port $old_port/" "$SSH_CONFIG"
         restart_ssh_service "$old_port"
         
-        # Удаляем новый порт из UFW
+        # Удаляем новый порт из UFW (все варианты)
         ufw delete allow ${new_port}/tcp 2>/dev/null
+        ufw delete allow from "$admin_ip" to any port "$new_port" 2>/dev/null
+        
+        # Восстанавливаем старый порт
+        if [[ -n "$admin_ip" ]]; then
+            ufw allow from "$admin_ip" to any port "$old_port" proto tcp comment 'Admin SSH'
+        else
+            ufw allow ${old_port}/tcp comment 'SSH'
+        fi
         
         log_error "Смена порта не удалась. Порт остался: $old_port"
         return 1
     fi
     
-    # 5. Успех! Удаляем старый порт из UFW
-    if command -v ufw &> /dev/null && [[ "$old_port" != "$new_port" ]]; then
-        log_step "Закрываем старый порт $old_port..."
-        ufw delete allow ${old_port}/tcp 2>/dev/null
-        ufw delete allow ${old_port} 2>/dev/null
-        # Удаляем правила с IP ограничением
-        ufw status numbered | grep " $old_port " | grep -oP '^\[\s*\K\d+' | sort -rn | while read num; do
-            echo "y" | ufw delete $num 2>/dev/null
+    # 5. Успех! Удаляем ВСЕ старые SSH порты из UFW
+    if command -v ufw &> /dev/null; then
+        log_step "Удаляем старые SSH правила..."
+        
+        # Удаляем старый порт (все варианты)
+        if [[ "$old_port" != "$new_port" ]]; then
+            ufw delete allow ${old_port}/tcp 2>/dev/null
+            ufw delete allow ${old_port} 2>/dev/null
+        fi
+        
+        # Удаляем стандартный порт 22 если он не новый
+        if [[ "$new_port" != "22" ]]; then
+            ufw delete allow 22/tcp 2>/dev/null
+            ufw delete allow 22 2>/dev/null
+        fi
+        
+        # Удаляем все правила с комментарием SSH кроме нового порта
+        # А также правила с IP ограничением для старых портов
+        ufw status numbered 2>/dev/null | grep -v "$new_port" | grep -iE "ssh|$old_port" | grep -oP '^\[\s*\K\d+' | sort -rn | while read num; do
+            [[ -n "$num" ]] && echo "y" | ufw delete $num 2>/dev/null
         done
+        
+        log_info "Старые SSH правила удалены"
     fi
     
     # Сохраняем в конфиг
