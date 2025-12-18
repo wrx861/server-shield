@@ -717,6 +717,14 @@ apply_protection() {
         setup_ssh_login_notify
     fi
     
+    # Сохраняем ADMIN_IP в конфиг (для использования при смене порта)
+    if [[ -n "$ADMIN_IP" ]]; then
+        save_config "ADMIN_IP" "$ADMIN_IP"
+    fi
+    
+    # Сохраняем SSH порт
+    save_config "SSH_PORT" "$SSH_PORT"
+    
     # Rootkit Hunter по умолчанию ВЫКЛЮЧЕН (можно включить через shield → Rootkit)
     # echo -e "   Настройка Rootkit Hunter..."
     # setup_rkhunter
