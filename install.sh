@@ -376,11 +376,33 @@ collect_settings() {
     echo -e "   ${YELLOW}⚠️  ВНИМАНИЕ: Если вы укажете IP — только с него${NC}"
     echo -e "   ${YELLOW}   можно будет подключиться по SSH!${NC}"
     echo ""
-    echo -e "   Ваш текущий IP: ${CYAN}$(curl -s ifconfig.me 2>/dev/null || echo 'не определён')${NC}"
-    echo -e "   Узнать IP: https://2ip.ru"
-    echo ""
-    echo -e "   Нажмите ${WHITE}Enter${NC} чтобы пропустить (настроите позже через меню)"
-    read -p "   IP админа: " ADMIN_IP
+    
+    # Определяем IP откуда подключён админ (не IP сервера!)
+    local client_ip=""
+    # Способ 1: SSH_CLIENT
+    client_ip=$(echo "$SSH_CLIENT" 2>/dev/null | awk '{print $1}')
+    # Способ 2: SSH_CONNECTION
+    [[ -z "$client_ip" ]] && client_ip=$(echo "$SSH_CONNECTION" 2>/dev/null | awk '{print $1}')
+    # Способ 3: who am i
+    [[ -z "$client_ip" ]] && client_ip=$(who am i 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+    
+    if [[ -n "$client_ip" ]]; then
+        echo -e "   Ваш IP (откуда подключены): ${GREEN}$client_ip${NC}"
+        echo ""
+        echo -e "   Нажмите ${WHITE}Enter${NC} чтобы использовать ${GREEN}$client_ip${NC}"
+        echo -e "   Или введите ${WHITE}0${NC} чтобы пропустить (SSH будет открыт для всех)"
+        read -p "   IP админа [$client_ip]: " ADMIN_IP
+        # Если пользователь нажал Enter - используем определённый IP
+        [[ -z "$ADMIN_IP" ]] && ADMIN_IP="$client_ip"
+        # Если ввёл 0 - пропускаем
+        [[ "$ADMIN_IP" == "0" ]] && ADMIN_IP=""
+    else
+        echo -e "   ${YELLOW}Не удалось определить ваш IP${NC}"
+        echo -e "   Узнать IP: https://2ip.ru"
+        echo ""
+        echo -e "   Нажмите ${WHITE}Enter${NC} чтобы пропустить (настроите позже через меню)"
+        read -p "   IP админа: " ADMIN_IP
+    fi
     
     # 3. IP панели (для нод)
     PANEL_IP=""
