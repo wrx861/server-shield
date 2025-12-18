@@ -212,10 +212,23 @@ ssh_menu() {
             1)
                 echo ""
                 local current_port=$(get_ssh_port)
-                echo -e "Текущий порт: ${CYAN}$current_port${NC}"
-                read -p "Новый порт SSH: " new_port
+                echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "  ${WHITE}Смена порта SSH${NC}"
+                echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+                echo -e "  Текущий порт: ${CYAN}$current_port${NC}"
+                echo ""
+                echo -e "  ${YELLOW}⚠️  ВАЖНО:${NC}"
+                echo -e "  • Не закрывайте текущую SSH сессию до проверки!"
+                echo -e "  • После смены откройте НОВОЕ окно и проверьте подключение"
+                echo -e "  • Рекомендуемые порты: 22222, 33322, 54321"
+                echo -e "  • Порт 2222 занят для связи панели с нодами!"
+                echo ""
+                read -p "Новый порт SSH (Enter для отмены): " new_port
                 if [[ -n "$new_port" ]]; then
                     change_ssh_port "$new_port"
+                else
+                    log_info "Отмена"
                 fi
                 ;;
             2)

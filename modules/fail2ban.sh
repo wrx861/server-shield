@@ -319,7 +319,13 @@ setup_summary_cron() {
 
 # Получить текущий режим уведомлений
 get_notify_mode() {
-    get_config "F2B_NOTIFY_MODE" "off"
+    # По умолчанию instant если Telegram настроен, иначе off
+    local default="off"
+    local tg_token=$(get_config "TG_TOKEN" "")
+    if [[ -n "$tg_token" ]]; then
+        default="instant"
+    fi
+    get_config "F2B_NOTIFY_MODE" "$default"
 }
 
 # Установить режим уведомлений
@@ -343,6 +349,40 @@ send_summary_now() {
     else
         log_error "Скрипт сводки не настроен. Настройте Telegram."
     fi
+}
+
+# Переинициализировать Telegram action (после смены токена)
+reinit_telegram_action() {
+    log_step "Переинициализация Telegram уведомлений..."
+    
+    local tg_token=$(get_config "TG_TOKEN" "")
+    local tg_chat_id=$(get_config "TG_CHAT_ID" "")
+    
+    if [[ -z "$tg_token" ]] || [[ -z "$tg_chat_id" ]]; then
+        log_error "Telegram не настроен!"
+        echo -e "   Настройте через: ${CYAN}shield telegram${NC}"
+        return 1
+    fi
+    
+    # Пересоздаём action и скрипты
+    create_telegram_action "$tg_token" "$tg_chat_id"
+    
+    # Пересоздаём скрипт сводки
+    setup_summary_script "$tg_token" "$tg_chat_id"
+    
+    # Устанавливаем режим instant по умолчанию если не установлен
+    local current_mode=$(get_notify_mode)
+    if [[ "$current_mode" == "off" ]] || [[ -z "$current_mode" ]]; then
+        save_config "F2B_NOTIFY_MODE" "instant"
+    fi
+    
+    # Перезапускаем Fail2Ban
+    systemctl restart fail2ban 2>/dev/null || service fail2ban restart
+    
+    log_info "Telegram уведомления переинициализированы!"
+    echo -e "   Token: ${CYAN}${tg_token:0:10}...${NC}"
+    echo -e "   Chat ID: ${CYAN}$tg_chat_id${NC}"
+    echo -e "   Режим: ${CYAN}$(get_notify_mode)${NC}"
 }
 
 # Проверка статуса
@@ -381,6 +421,92 @@ check_fail2ban_status() {
         esac
     else
         echo -e "  ${RED}✗${NC} Сервис: ${RED}Не активен${NC}"
+    fi
+}
+
+# Диагностика Telegram уведомлений
+diagnose_telegram() {
+    print_section "🔍 Диагностика Telegram уведомлений"
+    echo ""
+    
+    local tg_token=$(get_config "TG_TOKEN" "")
+    local tg_chat_id=$(get_config "TG_CHAT_ID" "")
+    local notify_mode=$(get_notify_mode)
+    
+    # 1. Проверяем конфиг
+    echo -e "${WHITE}1. Конфигурация:${NC}"
+    if [[ -n "$tg_token" ]]; then
+        echo -e "   ${GREEN}✓${NC} TG_TOKEN: ${CYAN}${tg_token:0:10}...${NC}"
+    else
+        echo -e "   ${RED}✗${NC} TG_TOKEN: ${RED}Не задан!${NC}"
+    fi
+    
+    if [[ -n "$tg_chat_id" ]]; then
+        echo -e "   ${GREEN}✓${NC} TG_CHAT_ID: ${CYAN}$tg_chat_id${NC}"
+    else
+        echo -e "   ${RED}✗${NC} TG_CHAT_ID: ${RED}Не задан!${NC}"
+    fi
+    
+    echo -e "   Режим уведомлений: ${CYAN}$notify_mode${NC}"
+    
+    # 2. Проверяем файлы
+    echo ""
+    echo -e "${WHITE}2. Файлы:${NC}"
+    
+    if [[ -f "/etc/fail2ban/action.d/telegram-shield.conf" ]]; then
+        echo -e "   ${GREEN}✓${NC} telegram-shield.conf существует"
+    else
+        echo -e "   ${RED}✗${NC} telegram-shield.conf ${RED}НЕ НАЙДЕН!${NC}"
+    fi
+    
+    if [[ -x "/opt/server-shield/scripts/fail2ban-notify-all.sh" ]]; then
+        echo -e "   ${GREEN}✓${NC} fail2ban-notify-all.sh существует и исполняемый"
+    else
+        echo -e "   ${RED}✗${NC} fail2ban-notify-all.sh ${RED}НЕ НАЙДЕН или не исполняемый!${NC}"
+    fi
+    
+    if [[ -f "/opt/server-shield/config/shield.conf" ]]; then
+        echo -e "   ${GREEN}✓${NC} shield.conf существует"
+    else
+        echo -e "   ${RED}✗${NC} shield.conf ${RED}НЕ НАЙДЕН!${NC}"
+    fi
+    
+    # 3. Проверяем jail.local
+    echo ""
+    echo -e "${WHITE}3. Конфиг Fail2Ban:${NC}"
+    if grep -q "telegram-shield" /etc/fail2ban/jail.local 2>/dev/null; then
+        echo -e "   ${GREEN}✓${NC} telegram-shield action используется в jail.local"
+    else
+        echo -e "   ${RED}✗${NC} telegram-shield action ${RED}НЕ ДОБАВЛЕН в jail.local!${NC}"
+        echo -e "   ${YELLOW}   Выполните: shield → Fail2Ban → Настройка уведомлений → Переинициализировать${NC}"
+    fi
+    
+    # 4. Проверяем лог отладки
+    echo ""
+    echo -e "${WHITE}4. Последние вызовы (debug log):${NC}"
+    if [[ -f "/opt/server-shield/logs/fail2ban-debug.log" ]]; then
+        echo -e "   ${CYAN}$(tail -5 /opt/server-shield/logs/fail2ban-debug.log 2>/dev/null)${NC}"
+    else
+        echo -e "   ${YELLOW}Лог отладки пуст (нет банов или скрипт не вызывался)${NC}"
+    fi
+    
+    # 5. Тест отправки
+    echo ""
+    echo -e "${WHITE}5. Тест отправки:${NC}"
+    if [[ -n "$tg_token" ]] && [[ -n "$tg_chat_id" ]]; then
+        local response
+        response=$(curl -s -X POST "https://api.telegram.org/bot${tg_token}/sendMessage" \
+            -d "chat_id=${tg_chat_id}" \
+            -d "text=🔧 Диагностика: тестовое сообщение от $(hostname)" 2>&1)
+        
+        if echo "$response" | grep -q '"ok":true'; then
+            echo -e "   ${GREEN}✓${NC} Тестовое сообщение отправлено успешно!"
+        else
+            echo -e "   ${RED}✗${NC} Ошибка отправки!"
+            echo -e "   ${RED}$response${NC}"
+        fi
+    else
+        echo -e "   ${YELLOW}Пропущено - токен или chat_id не заданы${NC}"
     fi
 }
 
@@ -470,6 +596,8 @@ notifications_menu() {
         echo -e "  ${WHITE}6)${NC} 📊 Сводка раз в день (9:00)"
         echo ""
         echo -e "  ${WHITE}7)${NC} 📤 Отправить сводку сейчас"
+        echo -e "  ${WHITE}8)${NC} 🔧 Переинициализировать Telegram (после смены токена)"
+        echo -e "  ${WHITE}9)${NC} 🔍 Диагностика (если не работает)"
         echo -e "  ${WHITE}0)${NC} Назад"
         echo ""
         read -p "Выберите действие: " choice
@@ -501,6 +629,12 @@ notifications_menu() {
                 ;;
             7)
                 send_summary_now
+                ;;
+            8)
+                reinit_telegram_action
+                ;;
+            9)
+                diagnose_telegram
                 ;;
             0) return ;;
             *) log_error "Неверный выбор" ;;
@@ -686,8 +820,15 @@ update_ignoreip() {
 create_portscan_filter() {
     cat > /etc/fail2ban/filter.d/portscan.conf << 'FILTER'
 # Fail2Ban filter for port scanning detection
+# Поддерживает syslog формат и kern.log/ufw.log
+
 [Definition]
-failregex = UFW BLOCK.* SRC=<HOST>
+# Формат syslog: timestamp hostname kernel: [UFW BLOCK] ... SRC=IP
+# Формат kern.log: timestamp hostname kernel: [UFW BLOCK] ... SRC=IP
+failregex = ^\s*\S+\s+\S+\s+\S+\s+kernel:\s+\[UFW BLOCK\].*SRC=<HOST>
+            ^.*\[UFW BLOCK\].*SRC=<HOST>
+            UFW BLOCK.*SRC=<HOST>
+
 ignoreregex =
 FILTER
 }
@@ -764,9 +905,14 @@ setup_extended_jails() {
 [portscan]
 enabled = false
 filter = portscan
-logpath = /var/log/ufw.log
-maxretry = 10
-findtime = 60
+# Пробуем разные логи: syslog (Ubuntu 22+), ufw.log, kern.log
+logpath = /var/log/syslog
+          /var/log/ufw.log
+          /var/log/kern.log
+# ВАЖНО: backend = auto для чтения из файла (не systemd)
+backend = auto
+maxretry = 5
+findtime = 120
 bantime = $bantime
 action = iptables-allports[name=portscan]$tg_action
 
@@ -812,7 +958,7 @@ JAILS
 
 # Создать универсальный Telegram action для всех jail'ов
 create_telegram_action() {
-    local tg_token="${1:-$(get_config "TG_BOT_TOKEN" "")}"
+    local tg_token="${1:-$(get_config "TG_TOKEN" "")}"
     local tg_chat_id="${2:-$(get_config "TG_CHAT_ID" "")}"
     
     # Если Telegram не настроен - пропускаем
@@ -845,12 +991,20 @@ ACTION
 TOKEN="$tg_token"
 CHAT_ID="$tg_chat_id"
 
-# Проверяем режим уведомлений
-MODE=\$(grep "^F2B_NOTIFY_MODE=" /opt/server-shield/config/shield.conf 2>/dev/null | cut -d'=' -f2)
+# Логируем вызов для отладки
+echo "\$(date '+%Y-%m-%d %H:%M:%S') | Called with: \$1 \$2 \$3" >> /opt/server-shield/logs/fail2ban-debug.log
 
-# Если режим не instant - не отправляем мгновенно (будет сводка)
+# Проверяем режим уведомлений (по умолчанию instant)
+MODE=\$(grep "^F2B_NOTIFY_MODE=" /opt/server-shield/config/shield.conf 2>/dev/null | cut -d'=' -f2)
+MODE=\${MODE:-instant}
+
+# Если режим off - не отправляем
+if [[ "\$MODE" == "off" ]]; then
+    exit 0
+fi
+
+# Если режим не instant - логируем для сводки и выходим
 if [[ "\$MODE" != "instant" ]]; then
-    # Логируем для сводки
     echo "\$(date '+%Y-%m-%d %H:%M:%S') | \$1 | \$2 | \$3" >> /opt/server-shield/logs/fail2ban-bans.log
     exit 0
 fi
