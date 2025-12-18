@@ -1,7 +1,7 @@
-# 🛡️ Server Security Shield v2.0
+# 🛡️ Server Security Shield v2.2
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/Version-2.2-blue" alt="Version">
   <img src="https://img.shields.io/badge/OS-Ubuntu%20|%20Debian-orange" alt="OS">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </p>
@@ -38,6 +38,8 @@
 - Умные правила для Панелей и Нод
 - Whitelist по IP (опционально)
 - Защита от сканирования портов
+- **Анализ текущих правил** перед настройкой
+- **3 режима**: сброс + надёжные / добавить защиту / оставить как есть
 
 ### 🧠 Kernel Hardening
 - Защита от DDoS (SYN flood)
