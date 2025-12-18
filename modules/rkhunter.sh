@@ -87,11 +87,11 @@ check_rkhunter_status() {
     if command -v rkhunter &> /dev/null; then
         echo -e "  ${GREEN}✓${NC} rkhunter: ${GREEN}Установлен${NC}"
         
-        # Проверяем cron
+        # Проверяем cron (включено/выключено)
         if [[ -f "$CRON_SCRIPT" ]]; then
-            echo -e "  ${GREEN}✓${NC} Cron: ${CYAN}Еженедельно${NC}"
+            echo -e "  ${GREEN}●${NC} Авто-сканирование: ${GREEN}ВКЛЮЧЕНО${NC} (еженедельно)"
         else
-            echo -e "  ${YELLOW}○${NC} Cron: Не настроен"
+            echo -e "  ${RED}○${NC} Авто-сканирование: ${YELLOW}ВЫКЛЮЧЕНО${NC}"
         fi
         
         # Последнее сканирование
@@ -101,7 +101,64 @@ check_rkhunter_status() {
         fi
     else
         echo -e "  ${YELLOW}○${NC} rkhunter: ${YELLOW}Не установлен${NC}"
+        echo -e "  ${CYAN}   Установится при включении${NC}"
     fi
+}
+
+# Включить еженедельное сканирование
+enable_rkhunter() {
+    log_step "Включение Rootkit Hunter..."
+    
+    # Проверяем установлен ли
+    if ! command -v rkhunter &> /dev/null; then
+        log_step "Установка rkhunter..."
+        apt-get update -qq
+        apt-get install -y rkhunter > /dev/null
+    fi
+    
+    # Настраиваем конфиг
+    if [[ -f "$RKHUNTER_CONF" ]]; then
+        sed -i 's/^#\?UPDATE_MIRRORS=.*/UPDATE_MIRRORS=1/' "$RKHUNTER_CONF"
+        sed -i 's/^#\?MIRRORS_MODE=.*/MIRRORS_MODE=0/' "$RKHUNTER_CONF"
+        sed -i 's/^#\?WEB_CMD=.*/WEB_CMD=""/' "$RKHUNTER_CONF"
+    fi
+    
+    # Обновляем базу
+    rkhunter --update --quiet 2>/dev/null
+    rkhunter --propupd --quiet 2>/dev/null
+    
+    # Создаём cron задачу
+    cat > "$CRON_SCRIPT" << 'CRON'
+#!/bin/bash
+# Server Shield - Weekly Rootkit Scan
+LOG_FILE="/var/log/rkhunter-weekly.log"
+rkhunter --update --quiet 2>/dev/null
+rkhunter --check --skip-keypress --quiet --report-warnings-only > "$LOG_FILE" 2>&1
+if [[ -s "$LOG_FILE" ]]; then
+    WARNING=$(head -20 "$LOG_FILE")
+    /opt/server-shield/modules/telegram.sh send_rootkit_alert "$WARNING" 2>/dev/null
+fi
+CRON
+    chmod +x "$CRON_SCRIPT"
+    
+    save_config "RKHUNTER_ENABLED" "true"
+    log_info "Rootkit Hunter включен (еженедельное сканирование)"
+}
+
+# Выключить еженедельное сканирование
+disable_rkhunter() {
+    log_step "Выключение Rootkit Hunter..."
+    
+    # Удаляем cron задачу
+    rm -f "$CRON_SCRIPT"
+    
+    save_config "RKHUNTER_ENABLED" "false"
+    log_info "Rootkit Hunter выключен"
+}
+
+# Проверить включен ли rkhunter
+is_rkhunter_enabled() {
+    [[ -f "$CRON_SCRIPT" ]] && return 0 || return 1
 }
 
 # Меню rkhunter
@@ -112,23 +169,37 @@ rkhunter_menu() {
         
         check_rkhunter_status
         
+        local enabled=$(is_rkhunter_enabled && echo "true" || echo "false")
+        
         echo ""
-        echo -e "  ${WHITE}1)${NC} Запустить сканирование"
-        echo -e "  ${WHITE}2)${NC} Обновить базу данных"
-        echo -e "  ${WHITE}3)${NC} Показать лог"
+        if [[ "$enabled" == "true" ]]; then
+            echo -e "  ${WHITE}1)${NC} ${RED}Выключить${NC} еженедельное сканирование"
+        else
+            echo -e "  ${WHITE}1)${NC} ${GREEN}Включить${NC} еженедельное сканирование"
+        fi
+        echo -e "  ${WHITE}2)${NC} Запустить сканирование сейчас"
+        echo -e "  ${WHITE}3)${NC} Обновить базу данных"
+        echo -e "  ${WHITE}4)${NC} Показать лог"
         echo -e "  ${WHITE}0)${NC} Назад"
         echo ""
         read -p "Выберите действие: " choice
         
         case $choice in
-            1) run_rkhunter_scan ;;
-            2)
+            1)
+                if [[ "$enabled" == "true" ]]; then
+                    disable_rkhunter
+                else
+                    enable_rkhunter
+                fi
+                ;;
+            2) run_rkhunter_scan ;;
+            3)
                 log_step "Обновление базы..."
                 rkhunter --update
                 rkhunter --propupd
                 log_info "База обновлена"
                 ;;
-            3)
+            4)
                 if [[ -f "$RKHUNTER_LOG" ]]; then
                     less "$RKHUNTER_LOG"
                 else
