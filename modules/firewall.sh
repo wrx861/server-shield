@@ -33,6 +33,12 @@ get_whitelist_ips() {
     done | sort -u
 }
 
+# Получить текущий SSH порт
+get_current_ssh_port() {
+    local port=$(grep "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+    echo "${port:-22}"
+}
+
 # Показать текущие правила красиво
 show_current_rules() {
     echo ""
@@ -65,51 +71,103 @@ show_current_rules() {
         echo -e "    Входящие: ${RED}Разрешены${NC} (опасно!)"
     fi
     
-    # Открытые порты
+    # Получаем текущий SSH порт
+    local ssh_port=$(get_current_ssh_port)
+    
+    # Открытые порты (только IPv4, без дублей)
     echo ""
     echo -e "  ${WHITE}Открытые порты:${NC}"
     
     local ports_found=false
+    local seen_ports=""
+    
+    # Парсим вывод ufw status правильно
+    # Формат: "22/tcp                     ALLOW       Anywhere"
+    # или:    "2222                       ALLOW       64.188.71.12"
     while IFS= read -r line; do
-        if [[ -n "$line" ]]; then
-            ports_found=true
-            local port=$(echo "$line" | awk '{print $1}')
-            local action=$(echo "$line" | awk '{print $2}')
-            local from=$(echo "$line" | awk '{print $3}')
-            
-            # Определяем тип порта
-            local desc=""
-            case "$port" in
-                22|22/tcp) desc="SSH" ;;
-                80|80/tcp) desc="HTTP" ;;
-                443|443/tcp) desc="HTTPS/VPN" ;;
-                2222|2222/tcp) desc="Panel-Node" ;;
-                3306|3306/tcp) desc="MySQL" ;;
+        # Пропускаем IPv6 правила (содержат "(v6)" или "::")
+        if echo "$line" | grep -qE "\(v6\)|::"; then
+            continue
+        fi
+        
+        # Пропускаем пустые строки и заголовки
+        if [[ -z "$line" ]] || echo "$line" | grep -qE "^To|^--"; then
+            continue
+        fi
+        
+        # Извлекаем порт (первое поле)
+        local port=$(echo "$line" | awk '{print $1}')
+        
+        # Пропускаем если уже видели этот порт
+        if echo "$seen_ports" | grep -q "|${port}|"; then
+            continue
+        fi
+        seen_ports="${seen_ports}|${port}|"
+        
+        ports_found=true
+        
+        # Определяем источник (откуда разрешено)
+        local from="Anywhere"
+        if echo "$line" | grep -qE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+            from=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+        fi
+        
+        # Определяем описание порта
+        local desc=""
+        local port_num=$(echo "$port" | cut -d'/' -f1)
+        
+        # Проверяем SSH порт динамически
+        if [[ "$port_num" == "$ssh_port" ]]; then
+            desc="SSH"
+        else
+            case "$port_num" in
+                22) desc="SSH" ;;
+                80) desc="HTTP" ;;
+                443) desc="HTTPS/VPN" ;;
+                2222) desc="Panel-Node" ;;
+                3306) desc="MySQL" ;;
+                8080) desc="HTTP-ALT" ;;
                 *) desc="" ;;
             esac
-            
-            if [[ "$from" == "Anywhere" ]]; then
-                echo -e "    ${YELLOW}•${NC} ${CYAN}$port${NC} ← Открыт для всех ${desc:+($desc)}"
-            else
-                echo -e "    ${GREEN}•${NC} ${CYAN}$port${NC} ← Только $from ${desc:+($desc)}"
-            fi
         fi
-    done < <(ufw status 2>/dev/null | grep -E "ALLOW" | head -20)
+        
+        # Выводим
+        if [[ "$from" == "Anywhere" ]]; then
+            echo -e "    ${YELLOW}•${NC} ${CYAN}$port${NC} ← Открыт для всех ${desc:+${WHITE}($desc)${NC}}"
+        else
+            echo -e "    ${GREEN}•${NC} ${CYAN}$port${NC} ← Только ${CYAN}$from${NC} ${desc:+${WHITE}($desc)${NC}}"
+        fi
+        
+    done < <(ufw status 2>/dev/null | grep "ALLOW")
     
     if [[ "$ports_found" == false ]]; then
         echo -e "    ${RED}Нет открытых портов!${NC}"
     fi
     
-    # Whitelist IP
+    # Whitelist IP (полный доступ ко всем портам)
     echo ""
-    echo -e "  ${WHITE}Whitelist IP (полный доступ):${NC}"
-    local ips=$(ufw status 2>/dev/null | grep "ALLOW" | grep "Anywhere" | grep -v "/" | grep -oP "\d+\.\d+\.\d+\.\d+" | sort -u)
-    if [[ -n "$ips" ]]; then
-        echo "$ips" | while read ip; do
-            echo -e "    ${GREEN}•${NC} $ip"
-        done
-    else
-        echo -e "    ${YELLOW}Нет IP в whitelist${NC}"
+    echo -e "  ${WHITE}IP с полным доступом:${NC}"
+    
+    local whitelist_found=false
+    # Ищем правила вида "Anywhere ALLOW X.X.X.X" (без указания порта)
+    while IFS= read -r line; do
+        # Пропускаем IPv6
+        if echo "$line" | grep -qE "\(v6\)|::"; then
+            continue
+        fi
+        
+        # Ищем строки где первое поле "Anywhere" (доступ ко всем портам)
+        if echo "$line" | grep -q "^Anywhere.*ALLOW"; then
+            local ip=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+            if [[ -n "$ip" ]]; then
+                echo -e "    ${GREEN}•${NC} $ip"
+                whitelist_found=true
+            fi
+        fi
+    done < <(ufw status 2>/dev/null | grep "ALLOW")
+    
+    if [[ "$whitelist_found" == false ]]; then
+        echo -e "    ${YELLOW}Нет IP с полным доступом${NC}"
     fi
     
     echo ""
@@ -165,6 +223,20 @@ get_custom_ports() {
 # НАСТРОЙКА FIREWALL (ОБНОВЛЁННАЯ)
 # ============================================
 
+# Отключить IPv6 в UFW
+disable_ipv6_ufw() {
+    local ufw_default="/etc/default/ufw"
+    
+    if [[ -f "$ufw_default" ]]; then
+        # Проверяем текущее значение
+        if grep -q "^IPV6=yes" "$ufw_default"; then
+            log_step "Отключение IPv6 в UFW..."
+            sed -i 's/^IPV6=yes/IPV6=no/' "$ufw_default"
+            log_info "IPv6 в UFW отключен"
+        fi
+    fi
+}
+
 # Настройка фаервола для Панели
 setup_firewall_panel() {
     local admin_ip="$1"
@@ -184,6 +256,9 @@ setup_firewall_panel() {
         1)
             # Полный сброс и надёжные правила
             log_step "Применение надёжных правил для ПАНЕЛИ..."
+            
+            # Отключаем IPv6
+            disable_ipv6_ufw
             
             ufw --force reset > /dev/null 2>&1
             ufw default deny incoming
@@ -260,6 +335,9 @@ setup_firewall_node() {
         1)
             # Полный сброс и надёжные правила
             log_step "Применение надёжных правил для НОДЫ..."
+            
+            # Отключаем IPv6
+            disable_ipv6_ufw
             
             ufw --force reset > /dev/null 2>&1
             ufw default deny incoming
