@@ -98,13 +98,8 @@ show_current_rules() {
         # Извлекаем порт (первое поле)
         local port=$(echo "$line" | awk '{print $1}')
         
-        # Пропускаем если уже видели этот порт
-        if echo "$seen_ports" | grep -q "|${port}|"; then
-            continue
-        fi
-        seen_ports="${seen_ports}|${port}|"
-        
-        ports_found=true
+        # Нормализуем порт (убираем /tcp, /udp)
+        local port_num=$(echo "$port" | cut -d'/' -f1)
         
         # Определяем источник (откуда разрешено)
         local from="Anywhere"
@@ -112,9 +107,19 @@ show_current_rules() {
             from=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
         fi
         
+        # Создаём уникальный ключ: порт + источник
+        local unique_key="${port_num}_${from}"
+        
+        # Пропускаем если уже видели этот порт с этим источником
+        if echo "$seen_ports" | grep -q "|${unique_key}|"; then
+            continue
+        fi
+        seen_ports="${seen_ports}|${unique_key}|"
+        
+        ports_found=true
+        
         # Определяем описание порта
         local desc=""
-        local port_num=$(echo "$port" | cut -d'/' -f1)
         
         # Проверяем SSH порт динамически
         if [[ "$port_num" == "$ssh_port" ]]; then
@@ -131,11 +136,11 @@ show_current_rules() {
             esac
         fi
         
-        # Выводим
+        # Выводим (используем port_num без /tcp)
         if [[ "$from" == "Anywhere" ]]; then
-            echo -e "    ${YELLOW}•${NC} ${CYAN}$port${NC} ← Открыт для всех ${desc:+${WHITE}($desc)${NC}}"
+            echo -e "    ${YELLOW}•${NC} ${CYAN}$port_num${NC} ← Открыт для всех ${desc:+${WHITE}($desc)${NC}}"
         else
-            echo -e "    ${GREEN}•${NC} ${CYAN}$port${NC} ← Только ${CYAN}$from${NC} ${desc:+${WHITE}($desc)${NC}}"
+            echo -e "    ${GREEN}•${NC} ${CYAN}$port_num${NC} ← Только ${CYAN}$from${NC} ${desc:+${WHITE}($desc)${NC}}"
         fi
         
     done < <(ufw status 2>/dev/null | grep "ALLOW")
