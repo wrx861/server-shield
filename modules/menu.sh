@@ -77,6 +77,8 @@ main_menu() {
         echo -e "  ${WHITE}7)${NC}  🔍  Rootkit сканирование"
         echo -e "  ${WHITE}8)${NC}  💾  Бэкап и восстановление"
         echo -e "  ${WHITE}9)${NC}  📝  Просмотр логов"
+        echo ""
+        echo -e "  ${WHITE}r)${NC}  🔄  ${YELLOW}Перенастроить защиту${NC}"
         
         # Проверяем наличие обновлений
         echo ""
@@ -117,6 +119,9 @@ main_menu() {
                     _do_simple_update
                 fi
                 ;;
+            r|R)
+                reconfigure_protection
+                ;;
             0) 
                 echo ""
                 log_info "До свидания! 🛡️"
@@ -125,6 +130,48 @@ main_menu() {
             *) log_error "Неверный выбор" ;;
         esac
     done
+}
+
+# Перенастройка защиты (повторный запуск мастера установки)
+reconfigure_protection() {
+    print_header
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${WHITE}🔄 ПЕРЕНАСТРОЙКА ЗАЩИТЫ${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  Это запустит мастер настройки заново."
+    echo -e "  Вы сможете изменить:"
+    echo ""
+    echo -e "    • Роль сервера (Панель/Нода)"
+    echo -e "    • IP администратора"
+    echo -e "    • IP панели (для нод)"
+    echo -e "    • SSH порт"
+    echo -e "    • Правила Firewall"
+    echo -e "    • Telegram уведомления"
+    echo ""
+    echo -e "  ${YELLOW}⚠️  Текущие настройки будут перезаписаны!${NC}"
+    echo ""
+    
+    if ! confirm "Запустить перенастройку?" "n"; then
+        log_info "Отмена"
+        press_any_key
+        return
+    fi
+    
+    # Проверяем наличие install.sh
+    local install_script="/opt/server-shield/install.sh"
+    
+    if [[ -f "$install_script" ]]; then
+        # Запускаем установщик в режиме перенастройки
+        bash "$install_script" --reconfigure
+    else
+        # Если нет локально - качаем и запускаем
+        log_step "Загрузка установщика..."
+        bash <(curl -fsSL https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh) --reconfigure
+    fi
+    
+    press_any_key
 }
 
 # Простое обновление (fallback если updater.sh не загружен)
