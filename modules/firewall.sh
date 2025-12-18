@@ -98,8 +98,19 @@ show_current_rules() {
         # Извлекаем порт (первое поле)
         local port=$(echo "$line" | awk '{print $1}')
         
+        # Пропускаем whitelist IP (первое поле = Anywhere)
+        # Формат: "Anywhere                   ALLOW       64.188.71.12"
+        if [[ "$port" == "Anywhere" ]]; then
+            continue
+        fi
+        
         # Нормализуем порт (убираем /tcp, /udp)
         local port_num=$(echo "$port" | cut -d'/' -f1)
+        
+        # Проверяем что это число (порт), а не что-то другое
+        if ! [[ "$port_num" =~ ^[0-9]+$ ]]; then
+            continue
+        fi
         
         # Определяем источник (откуда разрешено)
         local from="Anywhere"
