@@ -19,15 +19,30 @@ restart_ssh_service() {
         return 1
     fi
     
-    # 2. Определяем имя сервиса
+    # 2. Проверяем используется ли ssh.socket (Ubuntu 22.04+)
+    if systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
+        # SSH через socket - перезапускаем socket
+        systemctl daemon-reload 2>/dev/null
+        systemctl restart ssh.socket 2>/dev/null
+        sleep 1
+        
+        # Если socket активен - SSH запустится при подключении
+        if systemctl is-active --quiet ssh.socket; then
+            # Делаем "прогрев" - запускаем сервис
+            systemctl start ssh.service 2>/dev/null
+            return 0
+        fi
+    fi
+    
+    # 3. Определяем имя сервиса (классический способ)
     local service_name=""
-    if systemctl list-units --type=service | grep -q "ssh.service"; then
+    if systemctl list-units --type=service 2>/dev/null | grep -q "ssh.service"; then
         service_name="ssh"
-    elif systemctl list-units --type=service | grep -q "sshd.service"; then
+    elif systemctl list-units --type=service 2>/dev/null | grep -q "sshd.service"; then
         service_name="sshd"
     fi
     
-    # 3. Перезапускаем через systemctl
+    # 4. Перезапускаем через systemctl
     if [[ -n "$service_name" ]]; then
         systemctl restart "$service_name" 2>/dev/null
         sleep 1
@@ -48,11 +63,11 @@ restart_ssh_service() {
         fi
     fi
     
-    # 4. Пробуем через service
+    # 5. Пробуем через service
     service ssh restart 2>/dev/null || service sshd restart 2>/dev/null
     sleep 1
     
-    # 5. Крайний случай - убиваем и запускаем напрямую
+    # 6. Крайний случай - убиваем и запускаем напрямую
     if [[ -n "$target_port" ]] && ! ss -tlnp | grep -q ":$target_port"; then
         pkill -9 sshd 2>/dev/null
         sleep 1
@@ -129,6 +144,20 @@ BANNER
             log_step "Открываем SSH порт $new_port в UFW..."
             ufw allow ${new_port}/tcp comment 'SSH'
         fi
+    fi
+    
+    # Настраиваем ssh.socket если используется (Ubuntu 22.04+)
+    if systemctl is-active --quiet ssh.socket 2>/dev/null || systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
+        log_step "Настройка ssh.socket на порт $new_port..."
+        
+        mkdir -p /etc/systemd/system/ssh.socket.d
+        cat > /etc/systemd/system/ssh.socket.d/override.conf << EOF
+[Socket]
+ListenStream=
+ListenStream=$new_port
+EOF
+        systemctl daemon-reload
+        systemctl stop ssh.socket ssh.service 2>/dev/null
     fi
     
     # Перезапуск SSH
@@ -251,6 +280,27 @@ change_ssh_port() {
         sed -i "s/^Port.*/Port $new_port/" "$SSH_CONFIG"
     else
         echo "Port $new_port" >> "$SSH_CONFIG"
+    fi
+    
+    # 2.1 Проверяем и настраиваем ssh.socket (Ubuntu 22.04+)
+    if systemctl is-active --quiet ssh.socket 2>/dev/null; then
+        log_step "Обнаружен ssh.socket, настраиваем..."
+        
+        # Создаём override для ssh.socket
+        mkdir -p /etc/systemd/system/ssh.socket.d
+        cat > /etc/systemd/system/ssh.socket.d/override.conf << EOF
+[Socket]
+ListenStream=
+ListenStream=$new_port
+EOF
+        
+        # Перезагружаем systemd
+        systemctl daemon-reload
+        
+        # Останавливаем socket и сервис
+        systemctl stop ssh.socket ssh.service 2>/dev/null
+        
+        log_info "ssh.socket настроен на порт $new_port"
     fi
     
     # 3. Перезапускаем SSH с проверкой
