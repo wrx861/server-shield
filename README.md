@@ -1,4 +1,4 @@
-<h1 align="center">🛡️ Server Security Shield</h1>
+<h1 align="center">🛡️ Server Security Shield BETA</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-2.2-blue" alt="Version">
