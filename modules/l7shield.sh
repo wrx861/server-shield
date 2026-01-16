@@ -232,10 +232,10 @@ autoban_ip() {
     
     # Telegram уведомление
     if type send_telegram &>/dev/null; then
-        local hostname=$(hostname)
+        local server_name=$(get_server_name 2>/dev/null || hostname)
         send_telegram "🛡️ L7 Shield: Auto-ban
 
-Сервер: $hostname
+Сервер: $server_name
 IP: $ip
 Причина: $reason
 Время: ${timeout}s"
