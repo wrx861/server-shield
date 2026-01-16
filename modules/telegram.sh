@@ -259,6 +259,9 @@ setup_ssh_login_notify() {
     
     get_tg_config
     
+    # Получаем имя сервера (пользовательское или hostname)
+    local server_name=$(get_server_name 2>/dev/null || hostname)
+    
     # Формируем команду curl
     local curl_cmd="curl -s -X POST \"https://api.telegram.org/bot${TG_TOKEN}/sendMessage\" -d \"chat_id=${TG_CHAT_ID}\""
     
@@ -267,13 +270,13 @@ setup_ssh_login_notify() {
         curl_cmd="$curl_cmd -d \"message_thread_id=${TG_THREAD_ID}\""
     fi
     
-    # Создаём скрипт для PAM
+    # Создаём скрипт для PAM (имя сервера записывается статически)
     cat > /etc/ssh/notify-login.sh << SCRIPT
 #!/bin/bash
 if [ "\$PAM_TYPE" = "open_session" ]; then
     $curl_cmd --data-urlencode "text=🔓 SSH Login
 
-Сервер: \$(hostname)
+Сервер: ${server_name}
 Пользователь: \$PAM_USER
 IP: \$PAM_RHOST
 Время: \$(date '+%Y-%m-%d %H:%M:%S')" > /dev/null 2>&1
@@ -640,6 +643,9 @@ reinit_fail2ban_telegram() {
 update_fail2ban_notify_script() {
     get_tg_config
     
+    # Получаем имя сервера (пользовательское или hostname)
+    local server_name=$(get_server_name 2>/dev/null || hostname)
+    
     local thread_param=""
     if [[ -n "$TG_THREAD_ID" ]] && [[ "$TG_THREAD_ID" != "0" ]]; then
         thread_param="-d message_thread_id=$TG_THREAD_ID"
@@ -656,6 +662,7 @@ update_fail2ban_notify_script() {
 TOKEN="$TG_TOKEN"
 CHAT_ID="$TG_CHAT_ID"
 THREAD_ID="$TG_THREAD_ID"
+SERVER_NAME="${server_name}"
 
 # Логируем вызов
 echo "\$(date '+%Y-%m-%d %H:%M:%S') | Called with: \$1 \$2 \$3" >> /opt/server-shield/logs/fail2ban-debug.log
@@ -676,7 +683,6 @@ fi
 JAIL="\$1"
 IP="\$2"
 ACTION="\$3"
-HOSTNAME=\$(hostname)
 DATE=\$(date '+%Y-%m-%d %H:%M:%S')
 
 case "\$JAIL" in
@@ -690,7 +696,7 @@ esac
 
 MESSAGE="\$EMOJI Fail2Ban: Бан
 
-Сервер: \$HOSTNAME
+Сервер: \$SERVER_NAME
 Причина: \$DESC
 IP: \$IP
 Время: \$DATE"
