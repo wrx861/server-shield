@@ -228,6 +228,7 @@ do_update() {
         "traffic.sh"
         "monitor.sh"
         "updater.sh"
+        "l7shield.sh"
     )
     
     local updated_count=0
