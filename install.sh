@@ -563,6 +563,7 @@ download_shield_files() {
         "traffic.sh"
         "monitor.sh"
         "updater.sh"
+        "l7shield.sh"
     )
     
     for module in "${modules[@]}"; do
