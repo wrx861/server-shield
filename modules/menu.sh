@@ -20,6 +20,7 @@ source "$SCRIPT_DIR/status.sh"
 source "$SCRIPT_DIR/updater.sh"
 source "$SCRIPT_DIR/traffic.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/monitor.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/l7shield.sh" 2>/dev/null || true
 
 # Получить локальную версию (fallback если updater.sh не загружен)
 _get_local_version() {
@@ -136,6 +137,12 @@ main_menu() {
             local traffic_status=$(get_traffic_status_line 2>/dev/null || echo "")
             echo -e "  ${WHITE}t)${NC}  🚦  Ограничение скорости ${traffic_status}"
         fi
+        
+        # L7 Shield (DDoS Protection)
+        if type l7_menu &>/dev/null; then
+            local l7_status=$(get_l7_status_line 2>/dev/null || echo "")
+            echo -e "  ${WHITE}l)${NC}  🛡️  L7 Shield (DDoS Protection) ${l7_status}"
+        fi
         echo ""
         echo -e "  ${WHITE}r)${NC}  🔄  ${YELLOW}Перенастроить защиту${NC}"
         
@@ -184,6 +191,14 @@ main_menu() {
                     traffic_menu
                 else
                     log_error "Модуль traffic.sh не загружен"
+                    press_any_key
+                fi
+                ;;
+            l|L)
+                if type l7_menu &>/dev/null; then
+                    l7_menu
+                else
+                    log_error "Модуль l7shield.sh не загружен"
                     press_any_key
                 fi
                 ;;
