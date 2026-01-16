@@ -53,6 +53,12 @@ show_help() {
     echo "    rules         Показать правила"
     echo "  ssh             Настройки SSH"
     echo "    port <num>    Изменить порт"
+    echo "  l7              🛡️ L7 Shield (DDoS Protection)"
+    echo "    enable        Включить L7 защиту"
+    echo "    disable       Выключить L7 защиту"
+    echo "    reload        Перезагрузить правила"
+    echo "    status        Показать статус"
+    echo "    top           Топ атакующих"
     echo "  backup          Бэкап/восстановление"
     echo "    create        Создать бэкап"
     echo "    list          Список бэкапов"
@@ -67,6 +73,8 @@ show_help() {
     echo "  shield                    # Открыть меню"
     echo "  shield status             # Показать статус"
     echo "  shield update             # Обновить"
+    echo "  shield l7 enable          # Включить DDoS защиту"
+    echo "  shield l7 top             # Топ атакующих"
     echo "  shield keys generate      # Создать ключ"
     echo "  shield firewall allow 1.2.3.4  # Добавить IP"
     echo ""
@@ -146,6 +154,17 @@ case "$1" in
     scan)
         source "$MODULES_DIR/rkhunter.sh"
         run_rkhunter_scan
+        ;;
+    l7|l7shield|ddos)
+        source "$MODULES_DIR/l7shield.sh"
+        case "$2" in
+            enable) enable_l7 ;;
+            disable) disable_l7 ;;
+            reload) reload_l7 ;;
+            status) show_l7_status ;;
+            top) show_top_attackers ;;
+            *) l7_menu ;;
+        esac
         ;;
     logs)
         source "$MODULES_DIR/menu.sh"

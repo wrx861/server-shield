@@ -1,7 +1,7 @@
 <h1 align="center">🛡️ Server Security Shield</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-2.2.35-blue" alt="Version">
+  <img src="https://img.shields.io/badge/Version-2.2.37-blue" alt="Version">
   <img src="https://img.shields.io/badge/OS-Ubuntu%20|%20Debian-orange" alt="OS">
 </p>
 
@@ -243,7 +243,12 @@ Per-client лимит скорости для VPN нод:
 
 ## 📋 История версий
 
-### v2.2.35 (Текущая)
+### v2.2.37 (Текущая)
+- ✅ **Умное обновление** — теперь скачиваются только изменённые файлы (сравнение MD5 хэшей)
+- ✅ Показывает статистику: сколько обновлено, сколько новых, сколько без изменений
+- ✅ Значительно ускорено обновление при малых изменениях
+
+### v2.2.35
 - ✅ **Исправлена проблема бана VPN клиентов (HAPP)** — добавлена настройка игнорируемых портов для portscan jail
 - ✅ Новый пункт меню: "Настроить игнорируемые порты (для VPN/HAPP)"
 - ✅ install.sh теперь берёт версию из файла VERSION (не захардкожена)
