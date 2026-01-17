@@ -30,7 +30,7 @@ get_version() {
 show_help() {
     local version=$(get_version)
     echo ""
-    echo "🛡️ Server Shield v$version - CLI"
+    echo "Server Shield v$version - CLI"
     echo ""
     echo "Использование: shield [команда] [опции]"
     echo ""
@@ -39,32 +39,45 @@ show_help() {
     echo "  status          Показать статус защиты"
     echo "  version         Показать версию"
     echo "  update          Проверить и установить обновления"
+    echo ""
     echo "  keys            Управление SSH-ключами"
     echo "    generate      Создать новую пару ключей"
     echo "    show          Показать публичный ключ"
     echo "    list          Список авторизованных ключей"
     echo "    add           Добавить ключ"
     echo "    remove        Удалить ключ"
+    echo ""
     echo "  firewall        Управление фаерволом"
     echo "    allow <ip>    Добавить IP в whitelist"
     echo "    deny <ip>     Удалить IP из whitelist"
     echo "    open <port>   Открыть порт"
     echo "    close <port>  Закрыть порт"
     echo "    rules         Показать правила"
+    echo ""
     echo "  ssh             Настройки SSH"
     echo "    port <num>    Изменить порт"
-    echo "  l7              🛡️ L7 Shield (DDoS Protection)"
+    echo ""
+    echo "  l7              L7 Shield (DDoS Protection)"
     echo "    enable        Включить L7 защиту"
     echo "    disable       Выключить L7 защиту"
     echo "    reload        Перезагрузить правила"
     echo "    status        Показать статус"
     echo "    top           Топ атакующих"
+    echo ""
+    echo "  traffic         Traffic Control (скорость клиентов)"
+    echo "    status        Показать статус"
+    echo "    add           Добавить лимит для порта"
+    echo "    remove        Удалить лимит"
+    echo "    restart       Перезапустить"
+    echo ""
     echo "  backup          Бэкап/восстановление"
     echo "    create        Создать бэкап"
     echo "    list          Список бэкапов"
     echo "    restore       Восстановить"
+    echo ""
     echo "  telegram        Telegram уведомления"
     echo "    test          Отправить тест"
+    echo ""
     echo "  scan            Запустить rootkit скан"
     echo "  logs            Просмотр логов"
     echo "  help            Эта справка"
@@ -75,6 +88,7 @@ show_help() {
     echo "  shield update             # Обновить"
     echo "  shield l7 enable          # Включить DDoS защиту"
     echo "  shield l7 top             # Топ атакующих"
+    echo "  shield traffic status     # Статус лимитов скорости"
     echo "  shield keys generate      # Создать ключ"
     echo "  shield firewall allow 1.2.3.4  # Добавить IP"
     echo ""
@@ -154,6 +168,16 @@ case "$1" in
     scan)
         source "$MODULES_DIR/rkhunter.sh"
         run_rkhunter_scan
+        ;;
+    traffic|tc)
+        source "$MODULES_DIR/traffic.sh"
+        case "$2" in
+            status) show_traffic_status ;;
+            add) add_limit ;;
+            remove) remove_limit ;;
+            restart) restart_limiter ;;
+            *) traffic_menu ;;
+        esac
         ;;
     l7|l7shield|ddos)
         source "$MODULES_DIR/l7shield.sh"

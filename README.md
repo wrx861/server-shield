@@ -1,325 +1,402 @@
-<h1 align="center">🛡️ Server Security Shield</h1>
-
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-2.2.37-blue" alt="Version">
-  <img src="https://img.shields.io/badge/OS-Ubuntu%20|%20Debian-orange" alt="OS">
+  <img src="https://raw.githubusercontent.com/wrx861/server-shield/main/assets/logo.png" alt="Shield Logo" width="200"/>
 </p>
 
-<h3 align="center">Комплексная защита серверов за 30 секунд</h3>
-<p align="center"><i>Превращает "голый" VPS в защищённый бункер</i></p>
+<h1 align="center">🛡️ Server Shield</h1>
+
+<p align="center">
+  <strong>Enterprise-grade Server Security Suite for VPN Providers</strong>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#ddos-protection">DDoS Protection</a> •
+  <a href="#updates">Updates</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-3.3.0-blue.svg" alt="Version"/>
+  <img src="https://img.shields.io/badge/bash-5.0+-green.svg" alt="Bash"/>
+  <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License"/>
+  <img src="https://img.shields.io/badge/platform-Ubuntu%20|%20Debian-lightgrey.svg" alt="Platform"/>
+</p>
 
 ---
 
-## ✨ Что умеет
+## 🎯 Overview
 
-| Компонент | Возможности |
-|-----------|-------------|
-| 🔐 **SSH** | Вход только по ключам, смена порта, управление ключами |
-| 🔥 **Firewall** | Умные правила для панелей/нод, whitelist IP, IPv6 отключение |
-| 🤖 **Fail2Ban** | Автобан брутфорсеров, защита от сканеров, настраиваемое время бана |
-| 📱 **Telegram** | Уведомления в личку, группу или тему группы |
-| 🧠 **Kernel** | Защита от DDoS, оптимизация сети |
-| 🔍 **Rootkit** | Еженедельное сканирование на руткиты |
-| 💾 **Бэкапы** | Автосохранение конфигов, откат изменений |
-| 🚦 **Трафик** | Ограничение скорости per-client для VPN нод |
-| 📈 **Мониторинг** | Алерты диск/RAM/CPU, автоочистка логов |
+**Server Shield** — это комплексное решение для защиты Linux серверов, разработанное специально для VPN провайдеров и хостинг-компаний. Простая установка, мощная защита, интуитивное управление.
+
+```
+  ┌─────────────────────────────────────────────────────────────┐
+  │   ███████╗██╗  ██╗██╗███████╗██╗     ██████╗               │
+  │   ██╔════╝██║  ██║██║██╔════╝██║     ██╔══██╗              │
+  │   ███████╗███████║██║█████╗  ██║     ██║  ██║              │
+  │   ╚════██║██╔══██║██║██╔══╝  ██║     ██║  ██║              │
+  │   ███████║██║  ██║██║███████╗███████╗██████╔╝              │
+  │   ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═════╝               │
+  │          Server Security Suite  v3.3.0                      │
+  └─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 🚀 Установка
+## ✨ Features
+
+### 🔥 Dual Firewall Backend
+- **iptables** — классический, максимальная совместимость
+- **nftables** — современный, быстрее на больших списках
+- Автоопределение и миграция между backends
+- Переключение одним кликом
+
+### 🛡️ L7 DDoS Protection
+- Connection limits per IP
+- Rate limiting (SYN flood, per-port)
+- Malformed packets (NULL, XMAS, SYN-FIN)
+- VPN порты с мягкими правилами
+- GeoIP блокировка по странам
+- Auto-ban атакующих
+- IP Blacklists из внешних источников
+
+### 🌐 Nginx Protection
+- Rate limit zones
+- Connection limits
+- Bad bots blocking (User-Agent)
+- Bad URI blocking (.php, .env, wp-admin)
+- HTTP method filtering
+- Slowloris protection
+
+### 🤖 Advanced Protection (NEW in 3.x)
+- **JS Challenge Page** — защита от ботов (как Cloudflare)
+- **API Rate Limiting** — строгие лимиты для /api/
+- **Tarpit Mode** — замедление подозрительных
+- **WAF** — SQL/XSS/LFI injection protection
+- **Honeypot URLs** — ловушки с автобаном
+- **HTTP/2 Protection** — CVE-2023-44487
+- **Cloudflare Real IP** — корректный IP за CDN
+- **Blocklist Sync** — ipset ↔ nginx синхронизация
+
+### 🚔 Fail2Ban L7 (5 Jails)
+- `l7-404` — сканеры (2× 404 = бан 10 мин)
+- `l7-429` — rate limit (3× 429 = бан 30 мин)
+- `l7-scanner` — .php/.env (1× = бан 1 час)
+- `l7-flood` — HTTP flood (500 req/30s = бан 15 мин)
+- `l7-badbots` — bad UA (1× = бан 24 часа)
+
+### 📱 Telegram Notifications
+- SSH login алерты
+- Fail2Ban алерты
+- DDoS алерты
+- Honeypot алерты
+- Поддержка групп и тем
+
+### 🔑 SSH Security
+- ED25519 ключи
+- Управление authorized_keys
+- Смена порта SSH
+- Key-only authentication
+
+### 💾 Additional Features
+- Backup & Recovery
+- Resource Monitoring
+- Traffic Shaping (per-client)
+- Rootkit Scanner
+- Kernel Hardening
+
+---
+
+## 📦 Installation
+
+### Быстрая установка
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh)
 ```
 
-### 🔑 Мастер настройки SSH-ключей (NEW!)
+### Требования
 
-При установке скрипт автоматически поможет настроить SSH-ключ:
-
-```
-🔑 Настройка SSH доступа
-══════════════════════════════════════════════════════
-
-⚠️  ВАЖНО: После установки вход по паролю будет отключен!
-Без SSH-ключа вы потеряете доступ к серверу!
-
-Выберите способ настройки SSH-ключей:
-
-  1) 🔧 Создать ключ на сервере (покажу приватный для сохранения)
-  2) 📋 Вставить мой публичный ключ (если создали на своём ПК)
-  3) ⏭️  Пропустить (опасно)
-```
-
-**Вариант 1** — самый простой: скрипт создаёт ключ и показывает приватный ключ для сохранения в Termius/PuTTY.
+- **OS:** Ubuntu 20.04+ / Debian 11+
+- **RAM:** 512MB+
+- **Access:** Root
 
 ---
 
-### Что спросит скрипт:
+## 🚀 Usage
 
-1. **Название сервера** — для алертов в Telegram (напр. "USA-Node-1")
-2. **Роль сервера** — Панель или Нода
-3. **SSH-ключ** — мастер настройки (см. выше)
-4. **IP админа** — ваш IP для SSH (опционально)
-5. **IP панели** — для нод (опционально)
-6. **SSH порт** — новый или текущий
-7. **Telegram** — токен бота и ваш ID
-8. **Ограничение скорости** — для нод (опционально)
-
----
-
-## 🎛️ Управление
-
-После установки всё через команду `shield`:
-
-```
-╔══════════════════════════════════════════════════════╗
-║       🛡️  SERVER SECURITY SHIELD v2.2.30  🛡️         ║
-╚══════════════════════════════════════════════════════╝
-
-  1) 📊 Статус защиты
-  2) 🔑 Управление SSH-ключами
-  3) 🔒 Настройки SSH
-  4) 🔥 Firewall (UFW)
-  5) 🤖 Fail2Ban
-  6) 📱 Telegram уведомления
-  7) 🔍 Rootkit сканирование
-  8) 💾 Бэкап и восстановление
-  9) 📝 Просмотр логов
-  
-  m) 📈 Мониторинг ресурсов     ← НОВОЕ
-  t) 🚦 Ограничение скорости    ← НОВОЕ
-
-  r) 🔄 Перенастроить защиту
-  u) ⬆️  Обновить
-  0) 🚪 Выход
-```
-
-### Быстрые команды
+### Запуск меню
 
 ```bash
-shield           # Главное меню
-shield status    # Статус всех компонентов
-shield update    # Проверить обновления
-shield keys      # Управление SSH-ключами
+shield
+```
+
+### Главное меню v3.3
+
+```
+ЗАЩИТА                      УТИЛИТЫ
+[1] Firewall (UFW)          [7] Telegram
+[2] Fail2Ban                [8] Бэкапы
+[3] DDoS Protection         [9] Логи
+[4] SSH Security            [m] Мониторинг
+[5] SSH Ключи               [s] Полный статус
+[6] Traffic Control
+
+[k] Rootkit Scanner
+[u] Обновления
+[0] Выход
+```
+
+### DDoS Protection Menu
+
+```
+Status: ● ACTIVE  Backend: nftables
+Blacklist: 15  Auto-ban: 3  Conn: 1247
+
+[1] Полный статус
+[2] Топ атакующих (live)
+[3] Включить/Выключить защиту
+[4] Перезагрузить правила
+[5] VPN порты
+[6] IP Blacklist
+[7] IP Whitelist
+[8] GeoIP блокировка
+[9] Настройка лимитов
+[n] Nginx защита
+[f] Fail2Ban L7
+[b] Firewall Backend (nftables)
+[l] Логи банов
+```
+
+### CLI команды
+
+```bash
+# Основные
+shield                  # Меню
+shield status           # Статус защиты
+shield version          # Версия
+shield update           # Обновления
+
+# DDoS Protection
+shield l7 enable        # Включить
+shield l7 disable       # Выключить
+shield l7 status        # Статус
+shield l7 reload        # Перезагрузить
+shield l7 top           # Топ атакующих
+
+# Traffic Control
+shield traffic status   # Статус лимитов
+shield traffic add      # Добавить лимит
+
+# Firewall
+shield firewall allow 1.2.3.4
+shield firewall deny 1.2.3.4
+shield firewall open 8080
+shield firewall rules
+
+# SSH
+shield ssh port 2222
+shield keys generate
+shield keys show
+
+# Другое
+shield scan             # Rootkit скан
+shield logs             # Логи
+shield help             # Справка
 ```
 
 ---
 
-## 📈 Мониторинг ресурсов (NEW!)
+## 🛡️ DDoS Protection
 
-Автоматический контроль ресурсов сервера:
+### Уровни защиты
+
+| Уровень | Технология | Защита |
+|---------|------------|--------|
+| L3/L4 | iptables/nftables | Connection limits, SYN flood, Rate limiting |
+| L7 | Nginx | Rate limiting, Bad bots, WAF, Honeypot |
+| Reactive | Fail2Ban | 404 scanners, 429 flood, Bad UA |
+
+### Firewall Backends
+
+| Backend | Описание | Рекомендация |
+|---------|----------|--------------|
+| iptables | Классический, ipset | Ubuntu 18-20, Debian 10 |
+| nftables | Современный, встроенные sets | Ubuntu 22+, Debian 11+ |
+
+Переключение: `DDoS Protection → Firewall Backend`
+
+### VPN порты
+
+Shield автоматически определяет VPN порты и применяет мягкие правила:
 
 ```
-📊 Мониторинг ресурсов
-━━━━━━━━━━━━━━━━━━━━━
-  💾 Диск: 45% (свободно: 12G)
-  🧠 RAM:  62% (свободно: 1.5Gi)
-  ⚡ CPU:  8%
-
-● Мониторинг: Активен
-● Автоочистка: при >80% диска
-📅 Плановая очистка: ежедневно 4:00
+Default: 443, 8443, 2053, 2083, 2087, 2096
 ```
 
-**Возможности:**
-- 🔔 Алерты в Telegram при превышении порогов
-- 🧹 Автоочистка при заполнении диска >80%
-- 📅 Плановая очистка по расписанию
-- 📊 Очистка: логи, журнал, APT кэш, Docker, temp
+### Nginx интеграция
+
+Автопоиск конфигов в:
+- `/etc/nginx/sites-enabled/`
+- `/etc/nginx/conf.d/`
+- `/opt/remnawave/`
+- `/opt/marzban/`
+- `/opt/3x-ui/`
+- `/opt/hiddify/`
 
 ---
 
-## 🚦 Ограничение скорости клиентов
+## 🔄 Updates
 
-Per-client лимит скорости для VPN нод:
+### Через меню
 
-```
-🚦 Ограничение скорости клиентов
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Персональный лимит скорости для каждого клиента на порту.
-
-● Статус: Активен (1 портов)
-    └─ Порт 443: 10mbit↓ / 10mbit↑
-
-1) 📊 Подробный статус
-2) ➕ Добавить лимит для порта
-3) ➖ Удалить лимит
-4) 🔄 Перезапустить
-5) 📜 Просмотр логов
-6) ✅ Автозапуск
-7) 🛑 Остановить/Запустить
+```bash
+shield
+# Нажмите [u] — Обновления
 ```
 
-**Возможности:**
-- Per-IP лимиты через tc (U32 Hash)
-- Раздельные Download/Upload лимиты
-- Общий лимит на порт (опционально)
-- Автозапуск через systemd
-- Поддержка нескольких портов
+### Через CLI
+
+```bash
+shield update
+```
+
+### Автопроверка
+
+Shield проверяет обновления при каждом запуске и показывает уведомление.
 
 ---
 
-## 🤖 Fail2Ban — защита от атак
-
-```
-  ✓ Сервис: Активен
-  Забанено сейчас: 12
-  Время бана: 24 часа
-
-  1) Статус
-  2) Список забаненных (все jail'ы)
-  3) Разбанить IP
-  4) Забанить IP
-  5) 🔔 Настройка уведомлений
-  6) ⏱️  Время бана (1ч / 24ч / 7д / навсегда)
-  7) 🛡️  Расширенная защита
-  8) 📋 Whitelist (доверенные IP)
-```
-
-**Расширенная защита:**
-- 🔍 Защита от сканирования портов
-- 🌐 Защита Nginx от брутфорса
-- 🤖 Блокировка ботов и сканеров
-
----
-
-## 📱 Telegram уведомления
-
-Получайте алерты прямо в Telegram:
-- 🔓 Кто-то зашёл на сервер по SSH
-- 🚫 IP забанен за брутфорс
-- 🔍 Обнаружен сканер портов
-- 💾 Диск/RAM/CPU превысили порог
-- 🧹 Автоочистка выполнена
-
-**Поддержка:**
-- 👤 Личный чат
-- 👥 Группа
-- 💬 Тема в группе (Topics)
-
-**Как настроить:**
-1. Создайте бота у [@BotFather](https://t.me/BotFather) → получите токен
-2. Узнайте свой ID у [@userinfobot](https://t.me/userinfobot)
-3. Для групп с темами — перешлите сообщение из темы [@getmyid_bot](https://t.me/getmyid_bot)
-4. Введите при установке или через `shield` → Telegram
-
-💡 Один бот работает на всех серверах — в сообщениях указан hostname.
-
----
-
-## 🔥 Firewall — умные правила
-
-При установке анализирует текущие правила и предлагает:
-- 🔒 Исправить проблемы (закрыть лишние порты, ограничить SSH)
-- ✅ Оставить как есть
-- 🔄 Полная перенастройка
-
-**Новые возможности:**
-- 🚫 Полное отключение IPv6 (защита от обхода правил)
-- 🔌 Включение/выключение UFW из меню
-
-```
-🔍 АНАЛИЗ БЕЗОПАСНОСТИ
-
-⚠️  Порт 22 открыт, но SSH работает на 2804
-    Рекомендация: закрыть неиспользуемый порт 22
-✓  Входящие подключения блокируются по умолчанию
-```
-
----
-
-## 📁 Где что лежит
+## 📁 File Structure
 
 ```
 /opt/server-shield/
-├── modules/     # Модули
-├── scripts/     # Скрипты (мониторинг, очистка, bwlimit)
-├── config/      # Конфигурация  
-├── backups/     # Бэкапы
-└── logs/        # Логи
+├── shield.sh           # Main CLI
+├── VERSION             # 3.3.0
+├── README.md
+├── CHANGELOG.md
+├── install.sh
+├── uninstall.sh
+├── config/
+│   ├── shield.conf
+│   └── l7shield/
+│       ├── config.conf
+│       ├── whitelist.txt
+│       ├── blacklist.txt
+│       └── vpn_ports.txt
+├── logs/
+├── backups/
+├── scripts/
+│   ├── l7-autoban.sh
+│   ├── l7-sync-blocklist.sh
+│   └── l7-honeypot-ban.sh
+└── modules/
+    ├── utils.sh        # UI functions
+    ├── menu.sh         # Main menu
+    ├── l7shield.sh     # DDoS Protection (~5000 lines)
+    ├── firewall.sh     # UFW
+    ├── fail2ban.sh     # Fail2Ban
+    ├── telegram.sh     # Notifications
+    ├── ssh.sh          # SSH settings
+    ├── keys.sh         # SSH keys
+    ├── backup.sh       # Backup/restore
+    ├── monitor.sh      # Resource monitor
+    ├── traffic.sh      # Traffic shaping
+    ├── rkhunter.sh     # Rootkit scanner
+    ├── kernel.sh       # Kernel hardening
+    ├── status.sh       # Status display
+    └── updater.sh      # Updates
 ```
 
 ---
 
-## 📋 История версий
+## 📝 Changelog
 
-### v2.2.37 (Текущая)
-- ✅ **Умное обновление** — теперь скачиваются только изменённые файлы (сравнение MD5 хэшей)
-- ✅ Показывает статистику: сколько обновлено, сколько новых, сколько без изменений
-- ✅ Значительно ускорено обновление при малых изменениях
+### v3.3.0 (2025-01)
+- 🔥 **nftables backend** — современная альтернатива iptables
+- Автоопределение firewall
+- Миграция iptables ↔ nftables
+- nftables sets для IP списков
 
-### v2.2.35
-- ✅ **Исправлена проблема бана VPN клиентов (HAPP)** — добавлена настройка игнорируемых портов для portscan jail
-- ✅ Новый пункт меню: "Настроить игнорируемые порты (для VPN/HAPP)"
-- ✅ install.sh теперь берёт версию из файла VERSION (не захардкожена)
+### v3.2.0 (2025-01)
+- 🌐 Cloudflare Real IP Support
+- ⚡ HTTP/2 Attack Protection
+- 🔍 WAF (SQL/XSS/LFI protection)
+- 🍯 Honeypot URLs
 
-### v2.2.34
-- ✅ **Исправлен шейпер трафика** — переписан traffic.sh
-- ✅ Корректная реализация U32 Hash для per-IP лимитов
-- ✅ Раздельные лимиты Download/Upload
-- ✅ Интеграция в стиле Server Security Shield
+### v3.1.0 (2025-01)
+- 🛡️ JS Challenge Page
+- 🚀 API Rate Limiting
+- 🐌 Tarpit Mode
+- 🔄 Blocklist Sync
+- 🚔 Enhanced Fail2Ban (5 jails)
 
-### v2.2.33
-- ✅ Исправления и улучшения стабильности
-
-### v2.2.32
-- ✅ **Имя сервера для алертов** — можно указать своё название (USA-Node-1 и т.д.)
-- ✅ **Мастер SSH-ключей** — автоматическая настройка при установке
-  - Создать ключ на сервере
-  - Вставить свой публичный ключ
-
-### v2.2.31
-- ✅ Исправлена генерация SSH login скрипта
-- ✅ Обновлён README
-
-### v2.2.30
-- ✅ **Мониторинг ресурсов** — алерты диск/RAM/CPU в Telegram
-- ✅ **Автоочистка** — при заполнении диска и по расписанию
-- ✅ Очистка: логи, journal, Docker, APT кэш, temp
-
-### v2.2.29
-- ✅ **Telegram в группы с темами** — поддержка Topics
-- ✅ Выбор: личный чат / группа / тема в группе
-- ✅ Улучшена диагностика ошибок отправки
-
-### v2.2.28
-- ✅ **Ограничение скорости per-client** — модуль traffic.sh
-- ✅ tc (Traffic Control) для VPN нод
-- ✅ Автозапуск через systemd
-- ✅ Поддержка нескольких портов
-
-### v2.2.27
-- ✅ **IPv6 полное отключение** — через sysctl и UFW
-- ✅ **SSH AddressFamily inet** — только IPv4
-- ✅ Создание /run/sshd при смене порта
-- ✅ Включение/выключение UFW из меню
-
-### v2.2.26
-- ✅ **Fail2Ban: показ всех jail'ов** — sshd, portscan и др.
-- ✅ Разбан IP из любого jail'а
-
-### v2.2.25
-- ✅ **Диагностика SSH** — показывает причину ошибки при смене порта
-- ✅ Проверка SELinux, ssh.socket, занятости порта
+### v3.0.0 (2025-01)
+- 🎨 Premium UI v3.0
+- 🛡️ L7 DDoS Protection
+- 🌐 Nginx integration
+- 📱 Telegram improvements
 
 ---
 
-## ⚠️ Известные особенности
+## 🔧 Troubleshooting
 
-### Ubuntu 22.04+ (ssh.socket)
-На новых Ubuntu SSH работает через socket. Скрипт автоматически настраивает:
-- `/etc/systemd/system/ssh.socket.d/override.conf`
-- Перезапуск через `systemctl restart ssh.socket`
+### Shield не запускается
 
-### SELinux
-Если включен SELinux, при смене SSH порта выполните:
 ```bash
-semanage port -a -t ssh_port_t -p tcp НОВЫЙ_ПОРТ
+chmod +x /opt/server-shield/shield.sh
+chmod +x /opt/server-shield/modules/*.sh
 ```
+
+### UFW заблокировал SSH
+
+```bash
+ufw allow 22/tcp
+ufw reload
+```
+
+### nftables не работает
+
+```bash
+# Проверить статус
+systemctl status nftables
+
+# Установить
+apt install nftables
+systemctl enable nftables
+systemctl start nftables
+```
+
+### Проверка правил
+
+```bash
+# iptables
+iptables -L L7SHIELD -n -v
+
+# nftables
+nft list table inet l7shield
+```
+
+---
+
+## 🤝 Contributing
+
+Pull requests welcome!
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+## 💬 Support
+
+- **Issues:** [GitHub Issues](https://github.com/wrx861/server-shield/issues)
 
 ---
 
 <p align="center">
-  <b>🛡️ Защитите свой сервер сегодня!</b><br><br>
-  <a href="https://github.com/wrx861/server-shield">GitHub</a>
+  Made with ❤️ for VPN providers
 </p>
