@@ -49,7 +49,7 @@ DEFAULT_VPN_PORTS="443 8443 2053 2083 2087 2096"
 # ============================================
 
 GITHUB_SYNC_ENABLED="true"
-GITHUB_PAT="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"
+GITHUB_PAT="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"
 GITHUB_REPO="wrx861/blockip"
 GITHUB_FILE="iplist.txt"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}"
@@ -62,6 +62,37 @@ L7_LAST_SYNC="$L7_CONFIG_DIR/last_sync.txt"
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ
 # ============================================
+
+# Проверить и установить nginx если нужно
+ensure_nginx_installed() {
+    if command -v nginx &>/dev/null; then
+        return 0
+    fi
+    
+    log_step "Установка Nginx..."
+    
+    if command -v apt-get &>/dev/null; then
+        apt-get update -qq
+        apt-get install -y nginx >/dev/null 2>&1
+    elif command -v yum &>/dev/null; then
+        yum install -y nginx >/dev/null 2>&1
+    elif command -v dnf &>/dev/null; then
+        dnf install -y nginx >/dev/null 2>&1
+    else
+        log_error "Не удалось определить пакетный менеджер"
+        return 1
+    fi
+    
+    if command -v nginx &>/dev/null; then
+        systemctl enable nginx 2>/dev/null
+        systemctl start nginx 2>/dev/null
+        log_info "Nginx установлен"
+        return 0
+    else
+        log_error "Не удалось установить Nginx"
+        return 1
+    fi
+}
 
 init_l7_config() {
     mkdir -p "$L7_CONFIG_DIR"
@@ -684,11 +715,12 @@ generate_nft_config() {
 #!/usr/sbin/nft -f
 #
 # L7 Shield - nftables Configuration
-# Server Security Shield v3.2
+# Server Security Shield v3.4
 # Generated: $(date '+%Y-%m-%d %H:%M:%S')
 #
 
 # Удаляем старую таблицу если есть
+table inet $NFT_TABLE
 delete table inet $NFT_TABLE
 
 # Создаём таблицу L7 Shield
@@ -708,23 +740,13 @@ table inet $NFT_TABLE {
     # Blacklist - всегда блокируем
     set blacklist {
         type ipv4_addr
-        flags interval, timeout
-        timeout 0s
-        ${blacklist_ips:+elements = { $blacklist_ips }}
+        flags interval
+        ${blacklist_ips:+elements = { $blacklist_ips \}}
     }
     
-    # Autoban - временные баны
+    # Autoban - временные баны (упрощённый для совместимости)
     set autoban {
         type ipv4_addr
-        flags timeout
-        timeout ${AUTOBAN_TIME:-3600}s
-    }
-    
-    # Rate limit tracking
-    set rate_exceeded {
-        type ipv4_addr
-        flags timeout, dynamic
-        timeout 60s
     }
     
     # ==========================================
@@ -763,21 +785,17 @@ table inet $NFT_TABLE {
         
         # ===== VPN ПОРТЫ (мягкие лимиты) =====
         tcp dport { $vpn_ports } ct count over ${CONN_LIMIT_VPN:-500} drop
-        tcp dport { $vpn_ports } tcp flags syn limit rate ${RATE_LIMIT_VPN:-200/second} burst 300 packets accept
         tcp dport { $vpn_ports } accept
         
         # ===== SSH (строгие лимиты) =====
         tcp dport $ssh_port ct count over ${CONN_LIMIT_SSH:-10} drop
-        tcp dport $ssh_port tcp flags syn limit rate 5/minute burst 10 packets accept
         tcp dport $ssh_port accept
         
         # ===== HTTP/HTTPS =====
         tcp dport { 80, 443 } ct count over ${CONN_LIMIT_HTTP:-100} drop
-        tcp dport { 80, 443 } tcp flags syn limit rate ${RATE_LIMIT_HTTP:-50/second} burst 100 packets accept
         
         # ===== ГЛОБАЛЬНЫЙ ЛИМИТ =====
         tcp ct count over ${CONN_LIMIT_GLOBAL:-200} drop
-        tcp flags syn limit rate ${RATE_LIMIT_GLOBAL:-100/second} burst 150 packets accept
     }
     
     chain forward {
@@ -1121,6 +1139,12 @@ init_github_sync() {
 
 # Проверить доступность GitHub API
 check_github_connection() {
+    # Убедимся что PAT загружен
+    if [[ -z "$GITHUB_PAT" || "$GITHUB_PAT" == "YOUR_GITHUB_PAT" ]]; then
+        log_error "GitHub PAT не настроен"
+        return 1
+    fi
+    
     local response=$(curl -sS --connect-timeout 5 --max-time 10 \
         -H "Authorization: token $GITHUB_PAT" \
         -H "Accept: application/vnd.github.v3+json" \
@@ -2465,6 +2489,9 @@ enable_l7() {
     load_l7_config
     
     log_step "Включение L7 Shield..."
+    
+    # Установка nginx если нужно
+    ensure_nginx_installed
     
     local backend=$(detect_firewall)
     log_info "Используется backend: $backend"
