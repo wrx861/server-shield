@@ -237,7 +237,7 @@ rkhunter_menu() {
             4)
                 show_rkhunter_log
                 ;;
-            0|q|'')
+            0|q)
                 return
                 ;;
             *)

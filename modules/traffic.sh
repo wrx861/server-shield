@@ -724,7 +724,7 @@ traffic_menu() {
                 fi
                 press_any_key
                 ;;
-            0|q|'')
+            0|q)
                 return
                 ;;
             *)

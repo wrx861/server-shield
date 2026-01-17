@@ -1093,7 +1093,7 @@ firewall_backend_menu() {
                 fi
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -1841,7 +1841,7 @@ nginx_menu() {
                 fi
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -2855,7 +2855,10 @@ l7_menu() {
                 fi
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
+            *)
+                # Пустой ввод или неверный - просто обновляем меню
+                ;;
         esac
     done
 }
@@ -3264,7 +3267,7 @@ fail2ban_l7_menu() {
                     remove_fail2ban_l7
                 fi
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
         
         press_any_key
@@ -4009,7 +4012,7 @@ nginx_menu() {
             8)
                 nginx_paths_menu
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -4058,7 +4061,7 @@ nginx_paths_menu() {
                 [[ $found -eq 0 ]] && log_warn "VPN панели не найдены"
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -4929,7 +4932,7 @@ nginx_menu() {
             p)
                 nginx_paths_menu
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

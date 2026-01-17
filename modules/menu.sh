@@ -229,7 +229,7 @@ ssh_menu() {
                 who 2>/dev/null || echo "    Нет данных"
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -354,7 +354,7 @@ logs_menu() {
                 fi
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

@@ -271,7 +271,8 @@ confirm() {
 # Функция ожидания нажатия клавиши
 press_any_key() {
     echo ""
-    read -n 1 -s -r -p "Нажмите любую клавишу для продолжения..."
+    echo -ne "    ${DIM}Нажмите любую клавишу...${NC}"
+    read -n 1 -s -r
     echo ""
 }
 
@@ -319,9 +320,8 @@ get_server_name() {
 
 # Чтение ввода с валидацией
 read_choice() {
-    local prompt="${1:-Select}"
     echo ""
-    echo -ne "    ${prompt} ${WHITE}▸${NC} "
+    echo -ne "    ${WHITE}▸${NC} "
     read -r REPLY
     echo "$REPLY"
 }
@@ -502,14 +502,6 @@ spinner() {
         sleep 0.1
     done
     printf "\r    ${GREEN}✓${NC} $msg... done\n"
-}
-
-# Нажатие любой клавиши (обновлённое)
-press_any_key() {
-    echo ""
-    echo -ne "    ${DIM}Press any key to continue...${NC}"
-    read -n 1 -s -r
-    echo ""
 }
 
 # Проверка валидного выбора в меню

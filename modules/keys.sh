@@ -271,7 +271,7 @@ keys_menu() {
             5) add_public_key; press_any_key ;;
             6) remove_key; press_any_key ;;
             7) check_keys; press_any_key ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

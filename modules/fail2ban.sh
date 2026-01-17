@@ -877,7 +877,7 @@ fail2ban_menu() {
                 log_info "Fail2Ban перезапущен"
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -1347,7 +1347,7 @@ whitelist_f2b_menu() {
                 [[ -n "$ip" ]] && remove_from_whitelist "$ip"
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
@@ -1422,7 +1422,7 @@ extended_protection_menu() {
                 press_any_key
                 ;;
             7) configure_ignore_ports; press_any_key ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

@@ -377,7 +377,7 @@ telegram_menu() {
             5) reinit_all_telegram; press_any_key ;;
             6) change_server_name; press_any_key ;;
             7) disable_telegram; press_any_key ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

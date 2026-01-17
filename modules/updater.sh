@@ -430,7 +430,7 @@ update_menu() {
                     press_any_key
                 fi
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

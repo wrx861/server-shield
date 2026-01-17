@@ -194,7 +194,7 @@ backup_menu() {
                 cleanup_old_backups "${keep:-5}"
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }

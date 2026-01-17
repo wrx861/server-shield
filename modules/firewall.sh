@@ -729,7 +729,7 @@ firewall_menu() {
                 fi
                 press_any_key
                 ;;
-            0|q|'') return ;;
+            0|q) return ;;
         esac
     done
 }
