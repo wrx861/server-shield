@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # kernel.sh - Kernel Hardening (sysctl)
+# Premium UI v3.0
 #
 
 source "$(dirname "$0")/utils.sh" 2>/dev/null || source "/opt/server-shield/modules/utils.sh"
@@ -106,10 +107,10 @@ SYSCTL
 # Проверка статуса kernel hardening
 check_kernel_status() {
     echo ""
-    echo -e "${WHITE}Kernel Hardening Статус:${NC}"
+    echo -e "    ${WHITE}Kernel Hardening${NC}"
     
     if [[ -f "$SYSCTL_CONF" ]]; then
-        echo -e "  ${GREEN}✓${NC} Конфиг: ${CYAN}$SYSCTL_CONF${NC}"
+        show_status_line "Конфиг" "on" "Установлен"
         
         # Проверяем ключевые параметры
         local syn_cookies=$(sysctl -n net.ipv4.tcp_syncookies 2>/dev/null)
@@ -118,14 +119,14 @@ check_kernel_status() {
         local aslr=$(sysctl -n kernel.randomize_va_space 2>/dev/null)
         
         echo ""
-        echo -e "  ${WHITE}Ключевые параметры:${NC}"
+        echo -e "    ${DIM}Параметры:${NC}"
         
-        [[ "$syn_cookies" == "1" ]] && echo -e "    ${GREEN}✓${NC} SYN Cookies: Включены" || echo -e "    ${RED}✗${NC} SYN Cookies: Отключены"
-        [[ "$source_route" == "0" ]] && echo -e "    ${GREEN}✓${NC} Source Routing: Отключен" || echo -e "    ${RED}✗${NC} Source Routing: Включен"
-        [[ "$rp_filter" == "1" ]] && echo -e "    ${GREEN}✓${NC} RP Filter: Включен" || echo -e "    ${RED}✗${NC} RP Filter: Отключен"
-        [[ "$aslr" == "2" ]] && echo -e "    ${GREEN}✓${NC} ASLR: Полный" || echo -e "    ${YELLOW}○${NC} ASLR: Частичный"
+        [[ "$syn_cookies" == "1" ]] && show_status_line "SYN Cookies" "on" || show_status_line "SYN Cookies" "off"
+        [[ "$source_route" == "0" ]] && show_status_line "Source Routing" "off" "Отключен" || show_status_line "Source Routing" "on" "Включен (риск!)"
+        [[ "$rp_filter" == "1" ]] && show_status_line "RP Filter" "on" || show_status_line "RP Filter" "off"
+        [[ "$aslr" == "2" ]] && show_status_line "ASLR" "on" "Полный" || show_status_line "ASLR" "warn" "Частичный"
     else
-        echo -e "  ${YELLOW}○${NC} Kernel Hardening не настроен"
+        show_status_line "Статус" "off" "Не настроен"
     fi
 }
 

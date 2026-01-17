@@ -140,33 +140,45 @@ cleanup_old_backups() {
 # Меню бэкапов
 backup_menu() {
     while true; do
-        print_header
-        print_section "💾 Бэкап и Восстановление"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} Создать бэкап"
-        echo -e "  ${WHITE}2)${NC} Список бэкапов"
-        echo -e "  ${WHITE}3)${NC} Восстановить из бэкапа"
-        echo -e "  ${WHITE}4)${NC} Удалить старые бэкапы"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        print_header_mini "Бэкап и восстановление"
         
-        case $choice in
+        local backup_count=$(ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l || echo 0)
+        local last_backup=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
+        local last_date="никогда"
+        [[ -n "$last_backup" ]] && last_date=$(stat -c %y "$last_backup" 2>/dev/null | cut -d' ' -f1)
+        
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
+        echo -e "    ${DIM}│${NC} Бэкапов: ${CYAN}$backup_count${NC}           Последний: ${CYAN}$last_date${NC}    ${DIM}│${NC}"
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        menu_item "1" "Создать бэкап"
+        menu_item "2" "Список бэкапов"
+        menu_item "3" "Восстановить из бэкапа"
+        menu_item "4" "Удалить старые бэкапы"
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
             1)
                 create_full_backup
+                press_any_key
                 ;;
             2)
                 list_backups
+                press_any_key
                 ;;
             3)
                 if list_backups; then
                     echo ""
-                    read -p "Номер бэкапа для восстановления: " backup_num
+                    local backup_num
+                    input_value "Номер бэкапа" "" backup_num
                     
                     local i=1
                     for backup in "$BACKUP_DIR"/*.tar.gz; do
                         if [[ $i -eq $backup_num ]]; then
-                            if confirm "Восстановить из $(basename $backup)?" "n"; then
+                            if confirm_action "Восстановить из $(basename $backup)?" "n"; then
                                 restore_backup "$backup"
                             fi
                             break
@@ -174,16 +186,15 @@ backup_menu() {
                         ((i++))
                     done
                 fi
+                press_any_key
                 ;;
             4)
-                read -p "Сколько последних бэкапов оставить? [5]: " keep
-                keep=${keep:-5}
-                cleanup_old_backups "$keep"
+                local keep
+                input_value "Сколько бэкапов оставить" "5" keep
+                cleanup_old_backups "${keep:-5}"
+                press_any_key
                 ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }

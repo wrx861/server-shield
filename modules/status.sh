@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # status.sh - Проверка статуса защиты
+# Premium UI v3.0
 #
 
 source "$(dirname "$0")/utils.sh" 2>/dev/null || source "/opt/server-shield/modules/utils.sh"
@@ -11,63 +12,121 @@ source "$(dirname "$0")/rkhunter.sh" 2>/dev/null || source "/opt/server-shield/m
 
 # Полный статус защиты
 show_full_status() {
-    print_header
-    print_section "📊 Статус защиты сервера"
+    print_header_mini "Статус защиты сервера"
     
     # Информация о сервере
     echo ""
-    echo -e "${WHITE}Сервер:${NC}"
-    echo -e "  Hostname: ${CYAN}$(get_hostname)${NC}"
-    echo -e "  IP: ${CYAN}$(get_external_ip)${NC}"
-    echo -e "  OS: ${CYAN}$(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'"' -f2)${NC}"
-    echo -e "  Uptime: ${CYAN}$(uptime -p 2>/dev/null | sed 's/up //')${NC}"
+    echo -e "    ${WHITE}Сервер${NC}"
+    show_info "Hostname" "$(get_hostname)"
+    show_info "IP" "$(get_external_ip)"
+    show_info "OS" "$(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'"' -f2)"
+    show_info "Uptime" "$(uptime -p 2>/dev/null | sed 's/up //')"
     
     # SSH
-    check_ssh_status
+    echo ""
+    echo -e "    ${WHITE}SSH${NC}"
+    local ssh_port=$(get_ssh_port 2>/dev/null || echo "22")
+    show_info "Порт" "$ssh_port"
+    if grep -q "PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
+        show_status_line "Пароли" "off" "Отключены"
+    else
+        show_status_line "Пароли" "on" "Включены"
+    fi
+    show_status_line "Ключи" "on" "Включены"
+    if systemctl is-active --quiet sshd 2>/dev/null || systemctl is-active --quiet ssh 2>/dev/null; then
+        show_status_line "Сервис" "on" "Активен"
+    else
+        show_status_line "Сервис" "off" "Не активен"
+    fi
     
     # UFW
     echo ""
-    echo -e "${WHITE}Firewall (UFW):${NC}"
+    echo -e "    ${WHITE}Firewall (UFW)${NC}"
     if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
-        echo -e "  ${GREEN}✓${NC} Статус: ${GREEN}Активен${NC}"
+        show_status_line "Статус" "on" "Активен"
         local rules_count=$(ufw status | grep -c "ALLOW")
-        echo -e "  Правил: ${CYAN}$rules_count${NC}"
+        show_info "Правил" "$rules_count"
     else
-        echo -e "  ${RED}✗${NC} Статус: ${RED}Не активен${NC}"
+        show_status_line "Статус" "off" "Не активен"
     fi
     
     # Kernel Hardening
-    check_kernel_status
+    echo ""
+    echo -e "    ${WHITE}Kernel Hardening${NC}"
+    if [[ -f "/etc/sysctl.d/99-shield-hardening.conf" ]]; then
+        show_status_line "Статус" "on" "Настроен"
+        
+        local syn_cookies=$(sysctl -n net.ipv4.tcp_syncookies 2>/dev/null)
+        local rp_filter=$(sysctl -n net.ipv4.conf.all.rp_filter 2>/dev/null)
+        local aslr=$(sysctl -n kernel.randomize_va_space 2>/dev/null)
+        
+        [[ "$syn_cookies" == "1" ]] && show_status_line "SYN Cookies" "on" || show_status_line "SYN Cookies" "off"
+        [[ "$rp_filter" == "1" ]] && show_status_line "RP Filter" "on" || show_status_line "RP Filter" "off"
+        [[ "$aslr" == "2" ]] && show_status_line "ASLR" "on" "Полный" || show_status_line "ASLR" "warn" "Частичный"
+    else
+        show_status_line "Статус" "off" "Не настроен"
+    fi
     
     # Fail2Ban
-    check_fail2ban_status
+    echo ""
+    echo -e "    ${WHITE}Fail2Ban${NC}"
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
+        show_status_line "Статус" "on" "Активен"
+        local jails=$(fail2ban-client status 2>/dev/null | grep "Jail list" | cut -d':' -f2 | tr -d ' \t')
+        local jail_count=$(echo "$jails" | tr ',' '\n' | grep -c .)
+        show_info "Джейлов" "$jail_count"
+    else
+        show_status_line "Статус" "off" "Не активен"
+    fi
     
-    # Rootkit Hunter
-    check_rkhunter_status
+    # RKHunter
+    echo ""
+    echo -e "    ${WHITE}Rootkit Hunter${NC}"
+    if command -v rkhunter &> /dev/null; then
+        show_status_line "Статус" "on" "Установлен"
+        if [[ -f "/etc/cron.weekly/rkhunter-shield" ]]; then
+            show_status_line "Авто-скан" "on" "Еженедельно"
+        else
+            show_status_line "Авто-скан" "off"
+        fi
+    else
+        show_status_line "Статус" "off" "Не установлен"
+    fi
+    
+    # L7 Shield
+    echo ""
+    echo -e "    ${WHITE}L7 DDoS Protection${NC}"
+    local l7_enabled=$(get_config "L7_ENABLED" "false" 2>/dev/null)
+    if [[ "$l7_enabled" == "true" ]]; then
+        show_status_line "Статус" "on" "Активен"
+    else
+        show_status_line "Статус" "off" "Выключен"
+    fi
     
     # Telegram
     echo ""
-    echo -e "${WHITE}Telegram:${NC}"
+    echo -e "    ${WHITE}Telegram${NC}"
     local tg_token=$(get_config "TG_TOKEN" "")
     if [[ -n "$tg_token" ]]; then
-        echo -e "  ${GREEN}✓${NC} Статус: ${GREEN}Настроен${NC}"
+        show_status_line "Статус" "on" "Настроен"
     else
-        echo -e "  ${YELLOW}○${NC} Статус: ${YELLOW}Не настроен${NC}"
+        show_status_line "Статус" "off" "Не настроен"
     fi
     
     # Бэкапы
     echo ""
-    echo -e "${WHITE}Бэкапы:${NC}"
+    echo -e "    ${WHITE}Бэкапы${NC}"
     local backups_count=$(ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
-    echo -e "  Доступно бэкапов: ${CYAN}$backups_count${NC}"
+    show_info "Доступно" "$backups_count"
     
     # Итоговая оценка
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    print_divider
+    echo ""
     
     # Считаем активные компоненты
     local active=0
-    local total=5
+    local total=6
     
     # SSH (checking password auth)
     grep -q "PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null && ((active++))
@@ -81,40 +140,46 @@ show_full_status() {
     # Fail2Ban
     systemctl is-active --quiet fail2ban 2>/dev/null && ((active++))
     
+    # L7 Shield
+    [[ "$(get_config 'L7_ENABLED' 'false')" == "true" ]] && ((active++))
+    
     # Telegram
     [[ -n "$(get_config 'TG_TOKEN' '')" ]] && ((active++))
     
     local percentage=$((active * 100 / total))
     
+    echo -ne "    "
     if [[ $percentage -ge 80 ]]; then
-        echo -e "  ${GREEN}██████████${NC} ${WHITE}$percentage%${NC} - Отличная защита!"
+        echo -e "${GREEN}██████████${NC} ${WHITE}$percentage%${NC} — Отличная защита!"
     elif [[ $percentage -ge 60 ]]; then
-        echo -e "  ${YELLOW}████████${NC}░░ ${WHITE}$percentage%${NC} - Хорошая защита"
+        echo -e "${GREEN}████████${NC}${DIM}██${NC} ${WHITE}$percentage%${NC} — Хорошая защита"
     elif [[ $percentage -ge 40 ]]; then
-        echo -e "  ${YELLOW}██████${NC}░░░░ ${WHITE}$percentage%${NC} - Средняя защита"
+        echo -e "${YELLOW}██████${NC}${DIM}████${NC} ${WHITE}$percentage%${NC} — Средняя защита"
     else
-        echo -e "  ${RED}████${NC}░░░░░░ ${WHITE}$percentage%${NC} - Слабая защита!"
+        echo -e "${RED}████${NC}${DIM}██████${NC} ${WHITE}$percentage%${NC} — Слабая защита!"
     fi
     
-    echo -e "  ${WHITE}Активно компонентов:${NC} $active / $total"
+    echo -e "    ${DIM}Активно компонентов:${NC} ${WHITE}$active${NC} / ${DIM}$total${NC}"
 }
 
 # Краткий статус
 show_quick_status() {
-    local ssh_status="${RED}✗${NC}"
-    local ufw_status="${RED}✗${NC}"
-    local kernel_status="${RED}✗${NC}"
-    local f2b_status="${RED}✗${NC}"
-    local tg_status="${RED}✗${NC}"
+    local ssh_status="${RED}○${NC}"
+    local ufw_status="${RED}○${NC}"
+    local kernel_status="${RED}○${NC}"
+    local f2b_status="${RED}○${NC}"
+    local l7_status="${RED}○${NC}"
+    local tg_status="${RED}○${NC}"
     
-    grep -q "PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null && ssh_status="${GREEN}✓${NC}"
-    ufw status 2>/dev/null | grep -q "Status: active" && ufw_status="${GREEN}✓${NC}"
-    [[ -f /etc/sysctl.d/99-shield-hardening.conf ]] && kernel_status="${GREEN}✓${NC}"
-    systemctl is-active --quiet fail2ban 2>/dev/null && f2b_status="${GREEN}✓${NC}"
-    [[ -n "$(get_config 'TG_TOKEN' '')" ]] && tg_status="${GREEN}✓${NC}"
+    grep -q "PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null && ssh_status="${GREEN}●${NC}"
+    ufw status 2>/dev/null | grep -q "Status: active" && ufw_status="${GREEN}●${NC}"
+    [[ -f /etc/sysctl.d/99-shield-hardening.conf ]] && kernel_status="${GREEN}●${NC}"
+    systemctl is-active --quiet fail2ban 2>/dev/null && f2b_status="${GREEN}●${NC}"
+    [[ "$(get_config 'L7_ENABLED' 'false')" == "true" ]] && l7_status="${GREEN}●${NC}"
+    [[ -n "$(get_config 'TG_TOKEN' '')" ]] && tg_status="${GREEN}●${NC}"
     
     echo ""
-    echo -e "  SSH: $ssh_status  UFW: $ufw_status  Kernel: $kernel_status  Fail2Ban: $f2b_status  Telegram: $tg_status"
+    echo -e "    SSH:$ssh_status  UFW:$ufw_status  Kernel:$kernel_status  F2B:$f2b_status  L7:$l7_status  TG:$tg_status"
 }
 
 # CLI

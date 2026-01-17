@@ -339,74 +339,46 @@ check_forum_topics() {
 
 telegram_menu() {
     while true; do
-        print_header
-        print_section "📱 Telegram Уведомления"
+        print_header_mini "Telegram"
         
         get_tg_config
         local server_name=$(get_server_name 2>/dev/null || hostname)
         local custom_name=$(get_config "SERVER_NAME" "")
         
-        echo ""
+        # Статус блок
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
         if [[ -n "$TG_TOKEN" ]] && [[ -n "$TG_CHAT_ID" ]]; then
-            echo -e "  ${GREEN}✓${NC} Telegram настроен"
-            
-            local chat_type=$(detect_chat_type "$TG_CHAT_ID")
-            case "$chat_type" in
-                "private")
-                    echo -e "    Тип: ${CYAN}Личный чат${NC}"
-                    ;;
-                "group")
-                    echo -e "    Тип: ${CYAN}Группа${NC}"
-                    ;;
-                "supergroup")
-                    echo -e "    Тип: ${CYAN}Супергруппа${NC}"
-                    if [[ -n "$TG_THREAD_ID" ]] && [[ "$TG_THREAD_ID" != "0" ]]; then
-                        echo -e "    Тема ID: ${CYAN}$TG_THREAD_ID${NC}"
-                    fi
-                    ;;
-            esac
-            
-            echo -e "    Chat ID: ${CYAN}$TG_CHAT_ID${NC}"
+            local chat_type=$(detect_chat_type "$TG_CHAT_ID" 2>/dev/null || echo "unknown")
+            echo -e "    ${DIM}│${NC} Status: ${GREEN}● Configured${NC}    Type: ${CYAN}$chat_type${NC}          ${DIM}│${NC}"
         else
-            echo -e "  ${YELLOW}○${NC} Telegram не настроен"
+            echo -e "    ${DIM}│${NC} Status: ${RED}○ Not configured${NC}                          ${DIM}│${NC}"
         fi
+        echo -e "    ${DIM}│${NC} Server name: ${CYAN}$server_name${NC}                           ${DIM}│${NC}"
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
+        echo ""
         
-        # Имя сервера
-        echo ""
-        if [[ -n "$custom_name" ]]; then
-            echo -e "  📛 Имя сервера: ${CYAN}$server_name${NC}"
-        else
-            echo -e "  📛 Имя сервера: ${YELLOW}$server_name${NC} (hostname)"
-        fi
+        menu_item "1" "Настроить (личный чат)"
+        menu_item "2" "Настроить (группа)"
+        menu_item "3" "Настроить (группа с темой)"
+        menu_divider
+        menu_item "4" "Отправить тест"
+        menu_item "5" "Переинициализировать"
+        menu_item "6" "Изменить имя сервера"
+        menu_item "7" "Отключить Telegram"
+        menu_item "0" "Назад"
         
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} 👤 Настроить (личный чат)"
-        echo -e "  ${WHITE}2)${NC} 👥 Настроить (группа)"
-        echo -e "  ${WHITE}3)${NC} 💬 Настроить (группа с темой)"
-        echo ""
-        echo -e "  ${WHITE}4)${NC} 🧪 Отправить тестовое сообщение"
-        echo -e "  ${WHITE}5)${NC} 🔄 Переинициализировать (после смены настроек)"
-        echo -e "  ${WHITE}6)${NC} 📛 Изменить имя сервера"
-        echo -e "  ${WHITE}7)${NC} ❌ Отключить Telegram"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        local choice=$(read_choice)
         
-        case $choice in
-            1) setup_private_chat ;;
-            2) setup_group_chat ;;
-            3) setup_group_with_topic ;;
-            4) send_test ;;
-            5) reinit_all_telegram ;;
-            6) change_server_name ;;
-            7) disable_telegram ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+        case "${choice,,}" in
+            1) setup_private_chat; press_any_key ;;
+            2) setup_group_chat; press_any_key ;;
+            3) setup_group_with_topic; press_any_key ;;
+            4) send_test; press_any_key ;;
+            5) reinit_all_telegram; press_any_key ;;
+            6) change_server_name; press_any_key ;;
+            7) disable_telegram; press_any_key ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }
 
@@ -416,16 +388,15 @@ change_server_name() {
     local current_name=$(get_server_name)
     local custom_name=$(get_config "SERVER_NAME" "")
     
-    echo -e "${WHITE}Текущее имя сервера:${NC} ${CYAN}$current_name${NC}"
-    if [[ -z "$custom_name" ]]; then
-        echo -e "${YELLOW}(используется hostname)${NC}"
-    fi
+    echo -e "    ${WHITE}Текущее имя:${NC} ${CYAN}$current_name${NC}"
+    [[ -z "$custom_name" ]] && echo -e "    ${DIM}(используется hostname)${NC}"
     echo ""
-    echo -e "${WHITE}Введите новое имя для алертов:${NC}"
-    echo -e "${CYAN}Примеры: USA-Node-1, NL-Panel, DE-VPN${NC}"
-    echo -e "${YELLOW}Оставьте пустым для сброса на hostname${NC}"
+    echo -e "    ${DIM}Примеры: USA-Node-1, NL-Panel, DE-VPN${NC}"
+    echo -e "    ${DIM}Пустое = сбросить на hostname${NC}"
     echo ""
-    read -p "Имя сервера: " new_name
+    
+    local new_name
+    input_value "Новое имя" "" new_name
     
     if [[ -n "$new_name" ]]; then
         save_config "SERVER_NAME" "$new_name"

@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # rkhunter.sh - Rootkit Hunter
+# Premium UI v3.0
 #
 
 source "$(dirname "$0")/utils.sh" 2>/dev/null || source "/opt/server-shield/modules/utils.sh"
@@ -8,6 +9,45 @@ source "$(dirname "$0")/utils.sh" 2>/dev/null || source "/opt/server-shield/modu
 RKHUNTER_CONF="/etc/rkhunter.conf"
 RKHUNTER_LOG="/var/log/rkhunter.log"
 CRON_SCRIPT="/etc/cron.weekly/rkhunter-shield"
+
+# ============================================
+# СТАТУС
+# ============================================
+
+# Проверка статуса rkhunter
+check_rkhunter_status() {
+    echo ""
+    
+    if command -v rkhunter &> /dev/null; then
+        show_status_line "rkhunter" "on" "Установлен"
+        
+        # Проверяем cron (включено/выключено)
+        if [[ -f "$CRON_SCRIPT" ]]; then
+            show_status_line "Авто-сканирование" "on" "(еженедельно)"
+        else
+            show_status_line "Авто-сканирование" "off"
+        fi
+        
+        # Последнее сканирование
+        if [[ -f "$RKHUNTER_LOG" ]]; then
+            local last_scan=$(stat -c %y "$RKHUNTER_LOG" 2>/dev/null | cut -d' ' -f1)
+            show_info "Последнее сканирование" "$last_scan"
+        fi
+    else
+        show_status_line "rkhunter" "off" "Не установлен"
+        echo ""
+        echo -e "    ${DIM}Установится автоматически при включении${NC}"
+    fi
+}
+
+# Проверить включен ли rkhunter
+is_rkhunter_enabled() {
+    [[ -f "$CRON_SCRIPT" ]] && return 0 || return 1
+}
+
+# ============================================
+# ОПЕРАЦИИ
+# ============================================
 
 # Установка и настройка rkhunter
 setup_rkhunter() {
@@ -58,7 +98,7 @@ CRON
 
 # Запуск сканирования
 run_rkhunter_scan() {
-    print_section "Rootkit Сканирование"
+    print_header_mini "Rootkit Сканирование"
     
     echo ""
     log_step "Запуск сканирования... (это может занять несколько минут)"
@@ -76,32 +116,6 @@ run_rkhunter_scan() {
         fi
     else
         log_error "rkhunter не установлен"
-    fi
-}
-
-# Проверка статуса
-check_rkhunter_status() {
-    echo ""
-    echo -e "${WHITE}Rootkit Hunter Статус:${NC}"
-    
-    if command -v rkhunter &> /dev/null; then
-        echo -e "  ${GREEN}✓${NC} rkhunter: ${GREEN}Установлен${NC}"
-        
-        # Проверяем cron (включено/выключено)
-        if [[ -f "$CRON_SCRIPT" ]]; then
-            echo -e "  ${GREEN}●${NC} Авто-сканирование: ${GREEN}ВКЛЮЧЕНО${NC} (еженедельно)"
-        else
-            echo -e "  ${RED}○${NC} Авто-сканирование: ${YELLOW}ВЫКЛЮЧЕНО${NC}"
-        fi
-        
-        # Последнее сканирование
-        if [[ -f "$RKHUNTER_LOG" ]]; then
-            local last_scan=$(stat -c %y "$RKHUNTER_LOG" 2>/dev/null | cut -d' ' -f1)
-            echo -e "  ${WHITE}Последнее сканирование:${NC} $last_scan"
-        fi
-    else
-        echo -e "  ${YELLOW}○${NC} rkhunter: ${YELLOW}Не установлен${NC}"
-        echo -e "  ${CYAN}   Установится при включении${NC}"
     fi
 }
 
@@ -156,60 +170,79 @@ disable_rkhunter() {
     log_info "Rootkit Hunter выключен"
 }
 
-# Проверить включен ли rkhunter
-is_rkhunter_enabled() {
-    [[ -f "$CRON_SCRIPT" ]] && return 0 || return 1
+# Обновить базу данных
+update_rkhunter_db() {
+    log_step "Обновление базы..."
+    rkhunter --update
+    rkhunter --propupd
+    log_info "База обновлена"
 }
 
-# Меню rkhunter
+# Показать лог
+show_rkhunter_log() {
+    if [[ -f "$RKHUNTER_LOG" ]]; then
+        less "$RKHUNTER_LOG"
+    else
+        log_warn "Лог не найден"
+    fi
+}
+
+# ============================================
+# МЕНЮ
+# ============================================
+
 rkhunter_menu() {
     while true; do
-        print_header
-        print_section "🔍 Rootkit Hunter"
+        print_header_mini "Rootkit Hunter"
         
+        # Статус
         check_rkhunter_status
         
         local enabled=$(is_rkhunter_enabled && echo "true" || echo "false")
         
         echo ""
-        if [[ "$enabled" == "true" ]]; then
-            echo -e "  ${WHITE}1)${NC} ${RED}Выключить${NC} еженедельное сканирование"
-        else
-            echo -e "  ${WHITE}1)${NC} ${GREEN}Включить${NC} еженедельное сканирование"
-        fi
-        echo -e "  ${WHITE}2)${NC} Запустить сканирование сейчас"
-        echo -e "  ${WHITE}3)${NC} Обновить базу данных"
-        echo -e "  ${WHITE}4)${NC} Показать лог"
-        echo -e "  ${WHITE}0)${NC} Назад"
+        print_divider
         echo ""
-        read -p "Выберите действие: " choice
         
-        case $choice in
+        if [[ "$enabled" == "true" ]]; then
+            menu_item "1" "Выключить авто-сканирование" "${RED}●${NC}"
+        else
+            menu_item "1" "Включить авто-сканирование" "${GREEN}○${NC}"
+        fi
+        menu_item "2" "Запустить сканирование сейчас"
+        menu_item "3" "Обновить базу данных"
+        menu_item "4" "Просмотр лога"
+        menu_divider
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
             1)
                 if [[ "$enabled" == "true" ]]; then
                     disable_rkhunter
                 else
                     enable_rkhunter
                 fi
+                press_any_key
                 ;;
-            2) run_rkhunter_scan ;;
+            2)
+                run_rkhunter_scan
+                press_any_key
+                ;;
             3)
-                log_step "Обновление базы..."
-                rkhunter --update
-                rkhunter --propupd
-                log_info "База обновлена"
+                update_rkhunter_db
+                press_any_key
                 ;;
             4)
-                if [[ -f "$RKHUNTER_LOG" ]]; then
-                    less "$RKHUNTER_LOG"
-                else
-                    log_warn "Лог не найден"
-                fi
+                show_rkhunter_log
                 ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+            0|q|'')
+                return
+                ;;
+            *)
+                # Неверный ввод - просто обновляем экран
+                ;;
         esac
-        
-        press_any_key
     done
 }

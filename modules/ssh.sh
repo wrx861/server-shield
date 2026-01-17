@@ -484,14 +484,20 @@ get_ssh_port() {
 # Функция проверки статуса SSH
 check_ssh_status() {
     echo ""
-    echo -e "${WHITE}SSH Статус:${NC}"
-    echo -e "  Порт: ${CYAN}$(get_ssh_port)${NC}"
-    echo -e "  Пароли: ${RED}Отключены${NC}"
-    echo -e "  Ключи: ${GREEN}Включены${NC}"
+    echo -e "    ${WHITE}SSH Статус${NC}"
+    show_info "Порт" "$(get_ssh_port)"
+    
+    if grep -q "PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
+        show_status_line "Пароли" "off" "Отключены"
+    else
+        show_status_line "Пароли" "on" "Включены"
+    fi
+    
+    show_status_line "Ключи" "on" "Включены"
     
     if systemctl is-active --quiet sshd 2>/dev/null || systemctl is-active --quiet ssh 2>/dev/null; then
-        echo -e "  Сервис: ${GREEN}Активен${NC}"
+        show_status_line "Сервис" "on" "Активен"
     else
-        echo -e "  Сервис: ${RED}Не активен${NC}"
+        show_status_line "Сервис" "off" "Не активен"
     fi
 }

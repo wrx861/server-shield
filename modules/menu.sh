@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # menu.sh - Главное меню управления
+# Premium UI v3.0
 #
 
 # Определяем директорию
@@ -8,255 +9,398 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Подключаем модули
 source "$SCRIPT_DIR/utils.sh"
-source "$SCRIPT_DIR/ssh.sh"
-source "$SCRIPT_DIR/keys.sh"
-source "$SCRIPT_DIR/firewall.sh"
-source "$SCRIPT_DIR/kernel.sh"
-source "$SCRIPT_DIR/fail2ban.sh"
-source "$SCRIPT_DIR/telegram.sh"
-source "$SCRIPT_DIR/rkhunter.sh"
-source "$SCRIPT_DIR/backup.sh"
-source "$SCRIPT_DIR/status.sh"
-source "$SCRIPT_DIR/updater.sh"
+source "$SCRIPT_DIR/ssh.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/keys.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/firewall.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/kernel.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/fail2ban.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/telegram.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/rkhunter.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/backup.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/status.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/updater.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/traffic.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/monitor.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/l7shield.sh" 2>/dev/null || true
 
-# Получить локальную версию (fallback если updater.sh не загружен)
-_get_local_version() {
-    if [[ -f "/opt/server-shield/VERSION" ]]; then
-        cat "/opt/server-shield/VERSION" | tr -d '[:space:]'
-    else
-        echo "2.1.0"
-    fi
-}
+# ============================================
+# ГЛАВНОЕ МЕНЮ
+# ============================================
 
-# Показать статус версии (fallback)
-_show_version_info() {
-    local local_ver=$(_get_local_version)
-    
-    # Пробуем использовать функцию из updater.sh
-    if type check_updates &>/dev/null; then
-        local status=$(check_updates 2>/dev/null)
-        echo -ne "  ${WHITE}Версия:${NC} ${CYAN}$local_ver${NC}"
-        case "$status" in
-            "latest")
-                echo -e " ${GREEN}✓ актуальная${NC}"
-                ;;
-            available:*)
-                local new_ver="${status#available:}"
-                echo -e " ${YELLOW}⬆ доступно обновление $new_ver${NC}"
-                ;;
-            *)
-                echo ""
-                ;;
-        esac
-    else
-        echo -e "  ${WHITE}Версия:${NC} ${CYAN}$local_ver${NC}"
-    fi
-}
-
-# Проверка обновлений при запуске (один раз)
-_update_checked=false
-
-check_update_on_start() {
-    # Проверяем только один раз за сессию
-    if [[ "$_update_checked" == true ]]; then
-        return
-    fi
-    _update_checked=true
-    
-    # Проверяем наличие функций из updater.sh
-    if ! type get_remote_version &>/dev/null; then
-        return
-    fi
-    
-    local local_ver=$(get_local_version)
-    local remote_ver=$(get_remote_version)
-    
-    # Если нет данных о remote версии - пропускаем
-    [[ -z "$remote_ver" ]] && return
-    
-    # Сравниваем версии
-    if version_gt "$remote_ver" "$local_ver"; then
-        echo ""
-        echo -e "${YELLOW}╔══════════════════════════════════════════════════════╗${NC}"
-        echo -e "${YELLOW}║  ⬆️  ДОСТУПНО ОБНОВЛЕНИЕ: $local_ver → $remote_ver${NC}"
-        echo -e "${YELLOW}╚══════════════════════════════════════════════════════╝${NC}"
-        echo ""
-        echo -e "  Обновить сейчас? Это займёт несколько секунд."
-        echo ""
-        
-        read -p "  Обновить? (y/N): " choice
-        if [[ "$choice" =~ ^[Yy]$ ]]; then
-            do_update
-            echo ""
-            echo -e "${GREEN}Обновление завершено! Перезапустите shield для применения.${NC}"
-            echo ""
-            read -p "Нажмите Enter для продолжения..." 
-        fi
-    fi
-}
-
-# Главное меню с версией
 main_menu() {
-    # Проверяем обновления при первом запуске
-    check_update_on_start
-    
     while true; do
         print_header
+        print_status_cards
+        print_services_status
         
-        # Показываем версию и статус обновлений
-        _show_version_info
-        
-        show_quick_status
-        
+        echo -e "    ${WHITE}ЗАЩИТА${NC}                        ${WHITE}УТИЛИТЫ${NC}"
         echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "  ${WHITE}Главное меню${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        menu_item "1" "Firewall (UFW)"        
+        echo -ne "           "
+        menu_item "7" "Telegram"
         echo ""
-        echo -e "  ${WHITE}1)${NC}  📊  Статус защиты"
-        echo -e "  ${WHITE}2)${NC}  🔑  Управление SSH-ключами"
-        echo -e "  ${WHITE}3)${NC}  🔒  Настройки SSH"
-        echo -e "  ${WHITE}4)${NC}  🔥  Firewall (UFW)"
-        echo -e "  ${WHITE}5)${NC}  🤖  Fail2Ban"
-        echo -e "  ${WHITE}6)${NC}  📱  Telegram уведомления"
-        echo -e "  ${WHITE}7)${NC}  🔍  Rootkit сканирование"
-        echo -e "  ${WHITE}8)${NC}  💾  Бэкап и восстановление"
-        echo -e "  ${WHITE}9)${NC}  📝  Просмотр логов"
-        
-        # Мониторинг ресурсов
-        if type monitor_menu &>/dev/null; then
-            local monitor_status=$(get_monitor_status_line 2>/dev/null || echo "")
-            echo -e "  ${WHITE}m)${NC}  📈  Мониторинг ресурсов ${monitor_status}"
-        fi
-        
-        # Ограничение скорости (для нод)
-        if type traffic_menu &>/dev/null; then
-            local traffic_status=$(get_traffic_status_line 2>/dev/null || echo "")
-            echo -e "  ${WHITE}t)${NC}  🚦  Ограничение скорости ${traffic_status}"
-        fi
-        
-        # L7 Shield (DDoS Protection)
-        if type l7_menu &>/dev/null; then
-            local l7_status=$(get_l7_status_line 2>/dev/null || echo "")
-            echo -e "  ${WHITE}l)${NC}  🛡️  L7 Shield (DDoS Protection) ${l7_status}"
-        fi
+        menu_item "2" "Fail2Ban"              
+        echo -ne "                "
+        menu_item "8" "Бэкапы"
         echo ""
-        echo -e "  ${WHITE}r)${NC}  🔄  ${YELLOW}Перенастроить защиту${NC}"
-        
-        # Проверяем наличие обновлений
+        menu_item "3" "DDoS Protection"       
+        echo -ne "           "
+        menu_item "9" "Логи"
         echo ""
+        menu_item "4" "SSH Security"          
+        echo -ne "              "
+        menu_item "m" "Мониторинг"
+        echo ""
+        menu_item "5" "SSH Ключи"             
+        echo -ne "                 "
+        menu_item "s" "Полный статус"
+        echo ""
+        menu_item "6" "Traffic Control"
+        echo ""
+        
+        menu_divider
+        
+        # Дополнительные инструменты
+        menu_item "k" "Rootkit Scanner"
+        echo ""
+        
+        # Обновления
+        local update_available=""
         if type check_updates &>/dev/null; then
             local update_status=$(check_updates 2>/dev/null)
             if [[ "$update_status" == available:* ]]; then
-                local new_ver="${update_status#available:}"
-                echo -e "  ${WHITE}u)${NC}  ${GREEN}⬆️  Обновить до $new_ver${NC}"
+                update_available="${update_status#available:}"
+                echo -e "    ${GREEN}[u]${NC} ${GREEN}Обновить до $update_available${NC}"
             else
-                echo -e "  ${WHITE}u)${NC}  ⬆️  Проверить обновления"
+                menu_item_dim "u" "Проверить обновления"
             fi
         else
-            echo -e "  ${WHITE}u)${NC}  ⬆️  Проверить обновления"
+            menu_item_dim "u" "Проверить обновления"
         fi
         
         echo ""
-        echo -e "  ${WHITE}0)${NC}  🚪  Выход"
-        echo ""
-        read -p "Выберите действие: " choice
+        menu_item_dim "r" "Перенастроить"
+        echo -ne "            "
+        menu_item_dim "0" "Выход"
         
-        case $choice in
-            1) 
-                show_full_status
+        echo ""
+        print_divider
+        echo -e "    ${DIM}[?] help${NC}"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in  # ${choice,,} = lowercase
+            1) _safe_call firewall_menu ;;
+            2) _safe_call fail2ban_menu ;;
+            3) _safe_call l7_menu "DDoS Protection" ;;
+            4) ssh_menu ;;
+            5) _safe_call keys_menu ;;
+            6) _safe_call traffic_menu "Traffic Control" ;;
+            7) _safe_call telegram_menu ;;
+            8) _safe_call backup_menu ;;
+            9) logs_menu ;;
+            m) _safe_call monitor_menu "Мониторинг" ;;
+            k) _safe_call rkhunter_menu "Rootkit Scanner" ;;
+            s) 
+                _safe_call show_full_status
                 press_any_key
                 ;;
-            2) keys_menu ;;
-            3) ssh_menu ;;
-            4) firewall_menu ;;
-            5) fail2ban_menu ;;
-            6) telegram_menu ;;
-            7) rkhunter_menu ;;
-            8) backup_menu ;;
-            9) logs_menu ;;
-            m|M)
-                if type monitor_menu &>/dev/null; then
-                    monitor_menu
-                else
-                    log_error "Модуль monitor.sh не загружен"
-                    press_any_key
-                fi
+            u) _safe_call update_menu ;;
+            r) reconfigure_menu ;;
+            q|0|exit) 
+                _exit_app
                 ;;
-            t|T) 
-                if type traffic_menu &>/dev/null; then
-                    traffic_menu
-                else
-                    log_error "Модуль traffic.sh не загружен"
-                    press_any_key
-                fi
+            '?'|h|help)
+                show_help_menu
+                press_any_key
                 ;;
-            l|L)
-                if type l7_menu &>/dev/null; then
-                    l7_menu
-                else
-                    log_error "Модуль l7shield.sh не загружен"
-                    press_any_key
-                fi
+            '')
+                # Пустой ввод - просто обновляем экран
                 ;;
-            u|U) 
-                if type update_menu &>/dev/null; then
-                    update_menu
-                else
-                    _do_simple_update
-                fi
+            *)
+                # Неверный ввод - показываем ошибку но не выходим
                 ;;
-            r|R)
-                reconfigure_protection
-                ;;
-            0) 
-                echo ""
-                log_info "До свидания! 🛡️"
-                exit 0
-                ;;
-            *) log_error "Неверный выбор" ;;
         esac
     done
 }
 
-# Перенастройка защиты (повторный запуск мастера установки)
-reconfigure_protection() {
-    print_header
+# Безопасный вызов функции (если не существует - показать ошибку)
+_safe_call() {
+    local func="$1"
+    local name="${2:-$func}"
+    
+    if type "$func" &>/dev/null; then
+        "$func"
+    else
+        print_header_mini "$name"
+        echo ""
+        log_error "Модуль не загружен"
+        echo ""
+        echo -e "    ${DIM}Функция $func недоступна${NC}"
+        press_any_key
+    fi
+}
+
+# Выход из приложения
+_exit_app() {
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  ${WHITE}🔄 ПЕРЕНАСТРОЙКА ЗАЩИТЫ${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "    ${GREEN}✓${NC} До свидания!"
     echo ""
-    echo -e "  Это запустит мастер настройки заново."
-    echo -e "  Вы сможете изменить:"
+    exit 0
+}
+
+# ============================================
+# МЕНЮ СПРАВКИ
+# ============================================
+
+show_help_menu() {
+    print_header_mini "Справка"
+    
+    echo -e "    ${WHITE}НАВИГАЦИЯ${NC}"
     echo ""
-    echo -e "    • Роль сервера (Панель/Нода)"
-    echo -e "    • IP администратора"
-    echo -e "    • IP панели (для нод)"
-    echo -e "    • SSH порт"
-    echo -e "    • Правила Firewall"
-    echo -e "    • Telegram уведомления"
+    echo -e "    ${CYAN}0-9${NC}     Выбор пункта меню"
+    echo -e "    ${CYAN}0, q${NC}    Выход / Назад"
+    echo -e "    ${CYAN}Enter${NC}   Обновить экран"
     echo ""
-    echo -e "  ${YELLOW}⚠️  Текущие настройки будут перезаписаны!${NC}"
+    echo -e "    ${WHITE}БЫСТРЫЕ КОМАНДЫ${NC}"
+    echo ""
+    echo -e "    ${CYAN}u${NC}       Проверить обновления"
+    echo -e "    ${CYAN}r${NC}       Перенастроить"
+    echo -e "    ${CYAN}s${NC}       Полный статус"
+    echo -e "    ${CYAN}?${NC}       Эта справка"
+    echo ""
+    echo -e "    ${WHITE}CLI КОМАНДЫ${NC}"
+    echo ""
+    echo -e "    ${CYAN}shield${NC}              Открыть меню"
+    echo -e "    ${CYAN}shield status${NC}       Показать статус"
+    echo -e "    ${CYAN}shield l7 enable${NC}    Включить DDoS защиту"
+    echo -e "    ${CYAN}shield l7 status${NC}    Статус DDoS защиты"
+    echo -e "    ${CYAN}shield help${NC}         Полная справка CLI"
+    echo ""
+}
+
+# ============================================
+# МЕНЮ SSH
+# ============================================
+
+ssh_menu() {
+    while true; do
+        print_header_mini "SSH Security"
+        
+        # Показываем текущий статус
+        local ssh_port=$(get_ssh_port 2>/dev/null || echo "22")
+        local ssh_status=$(systemctl is-active sshd 2>/dev/null || systemctl is-active ssh 2>/dev/null || echo "unknown")
+        
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────┐${NC}"
+        echo -e "    ${DIM}│${NC} Порт: ${CYAN}$ssh_port${NC}              Статус: $([ "$ssh_status" = "active" ] && echo "${GREEN}● Active${NC}" || echo "${RED}○ Inactive${NC}") ${DIM}│${NC}"
+        echo -e "    ${DIM}└─────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        menu_item "1" "Изменить порт SSH"
+        menu_item "2" "Перезапустить SSH"
+        menu_item "3" "Показать конфиг"
+        menu_item "4" "Статус подключений"
+        menu_divider
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1)
+                _change_ssh_port_wizard
+                ;;
+            2)
+                log_step "Перезапуск SSH..."
+                systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
+                log_info "SSH перезапущен"
+                press_any_key
+                ;;
+            3)
+                echo ""
+                if [[ -f /etc/ssh/sshd_config ]]; then
+                    grep -v "^#" /etc/ssh/sshd_config | grep -v "^$" | head -30
+                fi
+                press_any_key
+                ;;
+            4)
+                echo ""
+                echo -e "    ${WHITE}Активные SSH соединения:${NC}"
+                echo ""
+                who 2>/dev/null || echo "    Нет данных"
+                press_any_key
+                ;;
+            0|q|'') return ;;
+        esac
+    done
+}
+
+# Мастер смены порта SSH
+_change_ssh_port_wizard() {
+    local current_port=$(get_ssh_port 2>/dev/null || echo "22")
+    
+    echo ""
+    echo -e "    ${WHITE}Смена порта SSH${NC}"
+    echo ""
+    echo -e "    Текущий порт: ${CYAN}$current_port${NC}"
+    echo ""
+    echo -e "    ${YELLOW}⚠ ВАЖНО:${NC}"
+    echo -e "    ${DIM}• Не закрывайте текущую SSH сессию!${NC}"
+    echo -e "    ${DIM}• После смены проверьте подключение в НОВОМ окне${NC}"
+    echo -e "    ${DIM}• Рекомендуемые порты: 22222, 33322, 54321${NC}"
     echo ""
     
-    if ! confirm "Запустить перенастройку?" "n"; then
+    local new_port
+    input_value "Новый порт" "" new_port
+    
+    if [[ -z "$new_port" ]]; then
         log_info "Отмена"
+        return
+    fi
+    
+    if ! validate_port "$new_port"; then
+        log_error "Неверный порт: $new_port"
         press_any_key
         return
     fi
     
-    # Проверяем наличие install.sh
+    if [[ "$new_port" == "$current_port" ]]; then
+        log_warn "Порт не изменился"
+        press_any_key
+        return
+    fi
+    
+    if confirm_action "Изменить порт SSH на $new_port?" "n"; then
+        if type change_ssh_port &>/dev/null; then
+            change_ssh_port "$new_port"
+        else
+            # Fallback
+            sed -i "s/^#*Port .*/Port $new_port/" /etc/ssh/sshd_config
+            systemctl restart sshd 2>/dev/null || systemctl restart ssh
+            
+            # UFW
+            if command -v ufw &>/dev/null; then
+                ufw allow "$new_port/tcp" comment "SSH" 2>/dev/null
+                [[ "$current_port" != "22" ]] && ufw delete allow "$current_port/tcp" 2>/dev/null
+            fi
+        fi
+        
+        log_info "Порт изменён на $new_port"
+        echo ""
+        echo -e "    ${YELLOW}Проверьте подключение в НОВОМ окне:${NC}"
+        echo -e "    ${CYAN}ssh -p $new_port root@$(get_external_ip 2>/dev/null || echo 'your-ip')${NC}"
+    fi
+    
+    press_any_key
+}
+
+# ============================================
+# МЕНЮ ЛОГОВ
+# ============================================
+
+logs_menu() {
+    while true; do
+        print_header_mini "Логи"
+        
+        menu_item "1" "Авторизация (auth.log)"
+        menu_item "2" "Fail2Ban"
+        menu_item "3" "Firewall (UFW)"
+        menu_item "4" "Rootkit Hunter"
+        menu_item "5" "DDoS Protection"
+        menu_divider
+        menu_item "6" "Последние входы"
+        menu_item "7" "Неудачные попытки"
+        menu_divider
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1)
+                echo ""
+                _show_log "/var/log/auth.log" "journalctl -u ssh -n 50"
+                ;;
+            2)
+                echo ""
+                _show_log "/var/log/fail2ban.log"
+                ;;
+            3)
+                echo ""
+                _show_log "/var/log/ufw.log"
+                ;;
+            4)
+                echo ""
+                _show_log "/var/log/rkhunter.log"
+                ;;
+            5)
+                echo ""
+                local l7_log="/opt/server-shield/logs/l7shield/bans.log"
+                _show_log "$l7_log"
+                ;;
+            6)
+                echo ""
+                echo -e "    ${WHITE}Последние входы:${NC}"
+                echo ""
+                last -15 2>/dev/null || echo "    Нет данных"
+                press_any_key
+                ;;
+            7)
+                echo ""
+                echo -e "    ${WHITE}Неудачные попытки входа:${NC}"
+                echo ""
+                if [[ -f /var/log/auth.log ]]; then
+                    grep -i "failed\|invalid" /var/log/auth.log 2>/dev/null | tail -20
+                else
+                    journalctl -u ssh 2>/dev/null | grep -i "failed\|invalid" | tail -20
+                fi
+                press_any_key
+                ;;
+            0|q|'') return ;;
+        esac
+    done
+}
+
+# Показать лог файл
+_show_log() {
+    local file="$1"
+    local fallback="$2"
+    
+    if [[ -f "$file" ]]; then
+        tail -50 "$file" 2>/dev/null | less
+    elif [[ -n "$fallback" ]]; then
+        eval "$fallback" 2>/dev/null | less
+    else
+        log_warn "Лог не найден: $file"
+        press_any_key
+    fi
+}
+
+# ============================================
+# МЕНЮ ПЕРЕНАСТРОЙКИ
+# ============================================
+
+reconfigure_menu() {
+    print_header_mini "Перенастройка"
+    
+    echo -e "    ${WHITE}Это запустит мастер настройки заново.${NC}"
+    echo ""
+    echo -e "    Вы сможете изменить:"
+    echo -e "    ${DIM}• Роль сервера (Панель/Нода)${NC}"
+    echo -e "    ${DIM}• IP администратора${NC}"
+    echo -e "    ${DIM}• SSH порт${NC}"
+    echo -e "    ${DIM}• Правила Firewall${NC}"
+    echo -e "    ${DIM}• Telegram уведомления${NC}"
+    echo ""
+    echo -e "    ${YELLOW}⚠ Текущие настройки будут перезаписаны!${NC}"
+    
+    if ! confirm_action "Запустить перенастройку?" "n"; then
+        return
+    fi
+    
     local install_script="/opt/server-shield/install.sh"
     
     if [[ -f "$install_script" ]]; then
-        # Запускаем установщик в режиме перенастройки
         bash "$install_script" --reconfigure
     else
-        # Если нет локально - качаем и запускаем
         log_step "Загрузка установщика..."
         bash <(curl -fsSL https://raw.githubusercontent.com/wrx861/server-shield/main/install.sh) --reconfigure
     fi
@@ -264,197 +408,64 @@ reconfigure_protection() {
     press_any_key
 }
 
-# Простое обновление (fallback если updater.sh не загружен)
+# ============================================
+# ПРОСТОЕ ОБНОВЛЕНИЕ (fallback)
+# ============================================
+
 _do_simple_update() {
-    print_header
-    print_section "⬆️ Обновление Server Shield"
+    print_header_mini "Обновление"
     
-    local local_ver=$(_get_local_version)
-    echo ""
-    echo -e "  Текущая версия: ${CYAN}$local_ver${NC}"
-    echo ""
+    local local_ver=$(_get_version 2>/dev/null || echo "unknown")
+    show_info "Текущая версия" "$local_ver"
     
     log_step "Проверка обновлений..."
     
     local remote_ver=$(curl -fsSL --connect-timeout 5 "https://raw.githubusercontent.com/wrx861/server-shield/main/VERSION" 2>/dev/null | tr -d '[:space:]')
     
     if [[ -z "$remote_ver" ]]; then
-        log_error "Не удалось проверить обновления. Проверьте интернет."
+        log_error "Не удалось проверить обновления"
         press_any_key
         return
     fi
     
-    echo -e "  Последняя версия: ${GREEN}$remote_ver${NC}"
+    show_info "Последняя версия" "$remote_ver"
     echo ""
     
     if [[ "$local_ver" == "$remote_ver" ]]; then
-        log_info "У вас установлена последняя версия!"
+        log_info "У вас последняя версия!"
         press_any_key
         return
     fi
     
-    log_info "Доступно обновление: $remote_ver"
-    echo ""
-    
-    if confirm "Обновить сейчас?" "y"; then
+    if confirm_action "Обновить до $remote_ver?" "y"; then
         log_step "Скачивание обновлений..."
         
         local GITHUB_RAW="https://raw.githubusercontent.com/wrx861/server-shield/main"
         local SHIELD_DIR="/opt/server-shield"
         
-        # Скачиваем модули
-        local modules=("utils.sh" "ssh.sh" "keys.sh" "firewall.sh" "kernel.sh" "fail2ban.sh" "telegram.sh" "rkhunter.sh" "backup.sh" "status.sh" "menu.sh" "updater.sh")
+        local modules=("utils.sh" "ssh.sh" "keys.sh" "firewall.sh" "kernel.sh" "fail2ban.sh" "telegram.sh" "rkhunter.sh" "backup.sh" "status.sh" "menu.sh" "updater.sh" "l7shield.sh")
         
         for module in "${modules[@]}"; do
-            echo -e "   Обновление: $module"
             curl -fsSL "$GITHUB_RAW/modules/$module" -o "$SHIELD_DIR/modules/$module" 2>/dev/null
         done
         
-        # Скачиваем основные файлы
-        echo -e "   Обновление: shield.sh"
         curl -fsSL "$GITHUB_RAW/shield.sh" -o "$SHIELD_DIR/shield.sh" 2>/dev/null
-        
-        echo -e "   Обновление: VERSION"
         curl -fsSL "$GITHUB_RAW/VERSION" -o "$SHIELD_DIR/VERSION" 2>/dev/null
         
-        # Делаем исполняемыми
-        chmod +x "$SHIELD_DIR"/*.sh 2>/dev/null
-        chmod +x "$SHIELD_DIR/modules/"*.sh 2>/dev/null
+        chmod +x "$SHIELD_DIR"/*.sh "$SHIELD_DIR/modules/"*.sh 2>/dev/null
         
-        echo ""
         log_info "Обновление завершено!"
-        echo -e "  ${YELLOW}Перезапустите shield для применения:${NC} ${CYAN}shield${NC}"
+        echo ""
+        echo -e "    ${YELLOW}Перезапустите shield:${NC} ${CYAN}shield${NC}"
     fi
     
     press_any_key
 }
 
-# Меню SSH
-ssh_menu() {
-    while true; do
-        print_header
-        print_section "🔒 Настройки SSH"
-        
-        check_ssh_status
-        
-        echo ""
-        echo -e "  ${WHITE}1)${NC} Изменить порт SSH"
-        echo -e "  ${WHITE}2)${NC} Перезапустить SSH"
-        echo -e "  ${WHITE}3)${NC} Показать конфиг SSH"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
-        
-        case $choice in
-            1)
-                echo ""
-                local current_port=$(get_ssh_port)
-                echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "  ${WHITE}Смена порта SSH${NC}"
-                echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                echo -e "  Текущий порт: ${CYAN}$current_port${NC}"
-                echo ""
-                echo -e "  ${YELLOW}⚠️  ВАЖНО:${NC}"
-                echo -e "  • Не закрывайте текущую SSH сессию до проверки!"
-                echo -e "  • После смены откройте НОВОЕ окно и проверьте подключение"
-                echo -e "  • Рекомендуемые порты: 22222, 33322, 54321"
-                echo -e "  • Порт 2222 занят для связи панели с нодами!"
-                echo ""
-                read -p "Новый порт SSH (Enter для отмены): " new_port
-                if [[ -n "$new_port" ]]; then
-                    change_ssh_port "$new_port"
-                else
-                    log_info "Отмена"
-                fi
-                ;;
-            2)
-                restart_ssh_service
-                log_info "SSH перезапущен"
-                ;;
-            3)
-                less /etc/ssh/sshd_config
-                ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
-        esac
-        
-        press_any_key
-    done
-}
+# ============================================
+# ЗАПУСК
+# ============================================
 
-# Меню логов
-logs_menu() {
-    while true; do
-        print_header
-        print_section "📝 Просмотр логов"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} Логи авторизации (auth.log)"
-        echo -e "  ${WHITE}2)${NC} Логи Fail2Ban"
-        echo -e "  ${WHITE}3)${NC} Логи UFW"
-        echo -e "  ${WHITE}4)${NC} Логи Rootkit Hunter"
-        echo -e "  ${WHITE}5)${NC} Последние SSH входы"
-        echo -e "  ${WHITE}6)${NC} Неудачные попытки входа"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
-        
-        case $choice in
-            1)
-                echo ""
-                if [[ -f /var/log/auth.log ]]; then
-                    tail -50 /var/log/auth.log | less
-                else
-                    journalctl -u ssh --no-pager -n 50
-                fi
-                ;;
-            2)
-                echo ""
-                if [[ -f /var/log/fail2ban.log ]]; then
-                    tail -50 /var/log/fail2ban.log | less
-                else
-                    log_warn "Лог Fail2Ban не найден"
-                fi
-                ;;
-            3)
-                echo ""
-                if [[ -f /var/log/ufw.log ]]; then
-                    tail -50 /var/log/ufw.log | less
-                else
-                    log_warn "Лог UFW не найден"
-                fi
-                ;;
-            4)
-                echo ""
-                if [[ -f /var/log/rkhunter.log ]]; then
-                    tail -100 /var/log/rkhunter.log | less
-                else
-                    log_warn "Лог rkhunter не найден"
-                fi
-                ;;
-            5)
-                echo ""
-                echo -e "${WHITE}Последние успешные входы:${NC}"
-                last -20
-                ;;
-            6)
-                echo ""
-                echo -e "${WHITE}Неудачные попытки входа:${NC}"
-                if [[ -f /var/log/auth.log ]]; then
-                    grep "Failed password" /var/log/auth.log | tail -20
-                else
-                    journalctl -u ssh --no-pager | grep "Failed password" | tail -20
-                fi
-                ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
-        esac
-        
-        press_any_key
-    done
-}
-
-# Запуск главного меню
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     check_root
     init_directories

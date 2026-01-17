@@ -569,216 +569,201 @@ firewall_rules() {
 # Меню управления фаерволом
 firewall_menu() {
     while true; do
-        print_header
-        print_section "🔥 Управление Firewall (UFW)"
+        print_header_mini "Firewall (UFW)"
         
-        echo ""
-        echo -e "${WHITE}Статус UFW:${NC}"
-        echo ""
+        # Статус блок
         local ufw_status=$(ufw status 2>/dev/null | head -1)
+        local ufw_active=false
+        local rules_count=0
+        local ipv6_status=$(check_ipv6_status 2>/dev/null || echo "unknown")
+        
         if echo "$ufw_status" | grep -q "active"; then
-            echo -e "  ${GREEN}●${NC} UFW: Активен"
-            local rules_count=$(ufw status 2>/dev/null | grep -c "ALLOW")
-            echo -e "  Правил: ${CYAN}$rules_count${NC}"
-        elif echo "$ufw_status" | grep -q "inactive"; then
-            echo -e "  ${RED}○${NC} UFW: Не активен ${RED}(нет защиты!)${NC}"
-        else
-            echo -e "  ${YELLOW}?${NC} UFW: Не установлен"
+            ufw_active=true
+            rules_count=$(ufw status 2>/dev/null | grep -c "ALLOW" || echo 0)
         fi
         
-        # Статус IPv6
-        local ipv6_status=$(check_ipv6_status)
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
+        if [[ "$ufw_active" == "true" ]]; then
+            echo -e "    ${DIM}│${NC} Status: ${GREEN}● Active${NC}       Rules: ${CYAN}$rules_count${NC}                 ${DIM}│${NC}"
+        else
+            echo -e "    ${DIM}│${NC} Status: ${RED}○ Inactive${NC}     ${RED}NO PROTECTION!${NC}              ${DIM}│${NC}"
+        fi
         if [[ "$ipv6_status" == "disabled" ]]; then
-            echo -e "  IPv6: ${GREEN}Отключен${NC}"
+            echo -e "    ${DIM}│${NC} IPv6: ${GREEN}Disabled${NC}                                     ${DIM}│${NC}"
         else
-            echo -e "  IPv6: ${YELLOW}Включен${NC}"
+            echo -e "    ${DIM}│${NC} IPv6: ${YELLOW}Enabled${NC}                                      ${DIM}│${NC}"
+        fi
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        menu_item "1" "Показать правила"
+        menu_item "2" "Список правил (с номерами)"
+        menu_item "3" "Перенастроить (Панель/Нода)"
+        menu_divider
+        menu_item "4" "Добавить IP в whitelist"
+        menu_item "5" "Удалить IP из whitelist"
+        menu_item "6" "Открыть порт"
+        menu_item "7" "Закрыть порт"
+        menu_divider
+        menu_item "8" "Сбросить все правила"
+        
+        if [[ "$ufw_active" == "true" ]]; then
+            echo -e "    ${RED}[9]${NC} ${RED}Выключить UFW${NC}"
+        else
+            echo -e "    ${GREEN}[9]${NC} ${GREEN}Включить UFW${NC}"
         fi
         
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} 📋 Показать текущие правила (красиво)"
-        echo -e "  ${WHITE}2)${NC} 📜 Список правил (с номерами)"
-        echo -e "  ${WHITE}3)${NC} 🛡️  Перенастроить фаервол (Панель/Нода)"
-        echo ""
-        echo -e "  ${WHITE}4)${NC} ➕ Добавить IP в whitelist"
-        echo -e "  ${WHITE}5)${NC} ➖ Удалить IP из whitelist"
-        echo -e "  ${WHITE}6)${NC} 🔓 Открыть порт"
-        echo -e "  ${WHITE}7)${NC} 🔒 Закрыть порт"
-        echo ""
-        echo -e "  ${WHITE}8)${NC} ⚠️  Сбросить все правила"
-        echo ""
-        # Показываем опцию включения/выключения
-        if echo "$ufw_status" | grep -q "active"; then
-            echo -e "  ${WHITE}9)${NC} 🔴 Выключить UFW"
-        else
-            echo -e "  ${WHITE}9)${NC} 🟢 Включить UFW"
-        fi
-        # IPv6 toggle
         if [[ "$ipv6_status" == "disabled" ]]; then
-            echo -e "  ${WHITE}i)${NC} 🌐 Включить IPv6"
+            menu_item "i" "Включить IPv6"
         else
-            echo -e "  ${WHITE}i)${NC} 🚫 Отключить IPv6 ${YELLOW}(рекомендуется)${NC}"
+            echo -e "    ${YELLOW}[i]${NC} ${YELLOW}Отключить IPv6 (рекомендуется)${NC}"
         fi
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        menu_divider
+        menu_item "0" "Назад"
         
-        case $choice in
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
             1) 
                 show_current_rules 
+                press_any_key
                 ;;
             2) 
                 firewall_rules 
+                press_any_key
                 ;;
             3)
-                # Перенастройка с выбором роли
                 reconfigure_firewall_menu
+                press_any_key
                 ;;
             4)
                 echo ""
-                read -p "IP адрес: " ip
-                read -p "Порт (Enter для полного доступа): " port
-                firewall_allow_ip "$ip" "$port" "Manual"
+                local ip port
+                input_value "IP адрес" "" ip
+                input_value "Порт (Enter для полного доступа)" "" port
+                [[ -n "$ip" ]] && firewall_allow_ip "$ip" "$port" "Manual"
+                press_any_key
                 ;;
             5)
                 echo ""
-                # Показываем текущие IP
-                echo -e "${WHITE}Текущие IP в whitelist:${NC}"
+                echo -e "    ${WHITE}Текущие IP в whitelist:${NC}"
                 ufw status 2>/dev/null | grep "ALLOW" | grep -v "/" | while read line; do
-                    echo "  $line"
+                    echo "    $line"
                 done
                 echo ""
-                read -p "IP адрес для удаления: " ip
-                firewall_deny_ip "$ip"
+                local ip
+                input_value "IP для удаления" "" ip
+                [[ -n "$ip" ]] && firewall_deny_ip "$ip"
+                press_any_key
                 ;;
             6)
                 echo ""
-                read -p "Порт: " port
-                read -p "Протокол (tcp/udp/both) [tcp]: " proto
-                proto=${proto:-tcp}
-                if [[ "$proto" == "both" ]]; then
-                    firewall_open_port "$port" "tcp"
-                    firewall_open_port "$port" "udp"
-                else
-                    firewall_open_port "$port" "$proto"
+                local port proto
+                input_value "Порт" "" port
+                input_value "Протокол (tcp/udp/both)" "tcp" proto
+                if [[ -n "$port" ]]; then
+                    if [[ "$proto" == "both" ]]; then
+                        firewall_open_port "$port" "tcp"
+                        firewall_open_port "$port" "udp"
+                    else
+                        firewall_open_port "$port" "${proto:-tcp}"
+                    fi
                 fi
+                press_any_key
                 ;;
             7)
                 echo ""
-                echo -e "${WHITE}Текущие открытые порты:${NC}"
+                echo -e "    ${WHITE}Открытые порты:${NC}"
                 ufw status 2>/dev/null | grep "ALLOW" | grep "/" | while read line; do
-                    echo "  $line"
+                    echo "    $line"
                 done
                 echo ""
-                read -p "Порт для закрытия: " port
-                read -p "Протокол (tcp/udp/both) [tcp]: " proto
-                proto=${proto:-tcp}
-                if [[ "$proto" == "both" ]]; then
-                    firewall_close_port "$port" "tcp"
-                    firewall_close_port "$port" "udp"
-                else
-                    firewall_close_port "$port" "$proto"
+                local port proto
+                input_value "Порт для закрытия" "" port
+                input_value "Протокол (tcp/udp/both)" "tcp" proto
+                if [[ -n "$port" ]]; then
+                    if [[ "$proto" == "both" ]]; then
+                        firewall_close_port "$port" "tcp"
+                        firewall_close_port "$port" "udp"
+                    else
+                        firewall_close_port "$port" "${proto:-tcp}"
+                    fi
                 fi
+                press_any_key
                 ;;
             8)
                 echo ""
-                echo -e "${RED}⚠️  ВНИМАНИЕ: Это удалит ВСЕ правила фаервола!${NC}"
-                if confirm "Вы уверены?" "n"; then
+                echo -e "    ${RED}⚠ ВНИМАНИЕ: Это удалит ВСЕ правила!${NC}"
+                if confirm_action "Сбросить все правила?" "n"; then
                     ufw --force reset
                     log_info "Фаервол сброшен"
                 fi
+                press_any_key
                 ;;
             9)
-                # Включить/выключить UFW
-                if ufw status 2>/dev/null | grep -q "Status: active"; then
+                if [[ "$ufw_active" == "true" ]]; then
                     echo ""
-                    echo -e "${YELLOW}⚠️  Отключение UFW уберёт ВСЮ защиту фаервола!${NC}"
-                    if confirm "Выключить UFW?" "n"; then
+                    echo -e "    ${YELLOW}⚠ Отключение UFW уберёт защиту!${NC}"
+                    if confirm_action "Выключить UFW?" "n"; then
                         ufw disable
-                        log_warn "UFW выключен — сервер без защиты фаервола!"
+                        log_warn "UFW выключен"
                     fi
                 else
-                    echo ""
                     log_step "Включение UFW..."
                     echo "y" | ufw enable > /dev/null 2>&1
-                    if ufw status 2>/dev/null | grep -q "Status: active"; then
-                        log_info "UFW включен"
-                    else
-                        log_error "Не удалось включить UFW"
-                    fi
+                    log_info "UFW включен"
                 fi
+                press_any_key
                 ;;
-            i|I)
-                # Включить/выключить IPv6
-                local ipv6_status=$(check_ipv6_status)
+            i)
                 if [[ "$ipv6_status" == "disabled" ]]; then
-                    echo ""
-                    if confirm "Включить IPv6?" "n"; then
-                        enable_ipv6_system
+                    if confirm_action "Включить IPv6?" "n"; then
+                        enable_ipv6_system 2>/dev/null
                     fi
                 else
-                    echo ""
-                    echo -e "${WHITE}Отключение IPv6 рекомендуется для безопасности.${NC}"
-                    echo -e "${YELLOW}Это закроет доступ по IPv6 ко всем портам.${NC}"
-                    if confirm "Отключить IPv6?" "y"; then
-                        disable_ipv6_system
-                        # Перезагружаем UFW для применения
-                        if ufw status 2>/dev/null | grep -q "Status: active"; then
-                            ufw reload 2>/dev/null
-                        fi
+                    echo -e "    ${DIM}Отключение IPv6 рекомендуется для безопасности${NC}"
+                    if confirm_action "Отключить IPv6?" "y"; then
+                        disable_ipv6_system 2>/dev/null
+                        [[ "$ufw_active" == "true" ]] && ufw reload 2>/dev/null
                     fi
                 fi
+                press_any_key
                 ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }
 
 # Меню перенастройки фаервола
 reconfigure_firewall_menu() {
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  ${WHITE}🔧 ПЕРЕНАСТРОЙКА FIREWALL${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "  ${WHITE}Выберите роль сервера:${NC}"
-    echo ""
-    echo -e "  ${WHITE}1)${NC} 🧠 ПАНЕЛЬ (SSH + HTTP + HTTPS)"
-    echo -e "  ${WHITE}2)${NC} 🚀 НОДА (SSH + VPN 443 + доступ панели)"
-    echo -e "  ${WHITE}0)${NC} Отмена"
-    echo ""
-    read -p "Ваш выбор: " role_choice
+    print_header_mini "Перенастройка Firewall"
     
-    case $role_choice in
+    echo -e "    ${WHITE}Выберите роль сервера:${NC}"
+    echo ""
+    menu_item "1" "ПАНЕЛЬ (SSH + HTTP + HTTPS)"
+    menu_item "2" "НОДА (SSH + VPN 443 + доступ панели)"
+    menu_item "0" "Отмена"
+    
+    local choice=$(read_choice)
+    
+    case "${choice,,}" in
         1)
-            # Панель
             local ssh_port=$(get_config "SSH_PORT" "22")
-            echo ""
-            read -p "SSH порт [$ssh_port]: " new_ssh_port
-            ssh_port=${new_ssh_port:-$ssh_port}
-            
-            read -p "IP админа (Enter для доступа отовсюду): " admin_ip
-            
-            setup_firewall_panel "$admin_ip" "$ssh_port"
+            local new_ssh_port admin_ip
+            input_value "SSH порт" "$ssh_port" new_ssh_port
+            input_value "IP админа (Enter для доступа отовсюду)" "" admin_ip
+            setup_firewall_panel "$admin_ip" "${new_ssh_port:-$ssh_port}"
             ;;
         2)
-            # Нода
             local ssh_port=$(get_config "SSH_PORT" "22")
-            echo ""
-            read -p "SSH порт [$ssh_port]: " new_ssh_port
-            ssh_port=${new_ssh_port:-$ssh_port}
-            
-            read -p "IP админа (Enter для пропуска): " admin_ip
-            read -p "IP Панели (Enter для пропуска): " panel_ip
-            read -p "Доп. VPN порты через пробел (Enter для пропуска): " extra_ports
-            
-            setup_firewall_node "$admin_ip" "$panel_ip" "$ssh_port" "$extra_ports"
+            local new_ssh_port admin_ip panel_ip extra_ports
+            input_value "SSH порт" "$ssh_port" new_ssh_port
+            input_value "IP админа (Enter для пропуска)" "" admin_ip
+            input_value "IP Панели (Enter для пропуска)" "" panel_ip
+            input_value "Доп. VPN порты через пробел" "" extra_ports
+            setup_firewall_node "$admin_ip" "$panel_ip" "${new_ssh_port:-$ssh_port}" "$extra_ports"
             ;;
-        0|*)
+        0|*) 
             log_info "Отмена"
             ;;
     esac

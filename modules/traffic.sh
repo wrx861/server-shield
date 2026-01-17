@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # traffic.sh - Ограничение скорости per-client через tc (U32 Hash)
-# Server Security Shield
+# Premium UI v3.0
 #
 
 source "$(dirname "$0")/utils.sh" 2>/dev/null || source "/opt/server-shield/modules/utils.sh"
@@ -33,7 +33,7 @@ detect_interface() {
 # Выбор интерфейса интерактивно
 select_interface() {
     echo ""
-    echo -e "${WHITE}Доступные интерфейсы:${NC}"
+    echo -e "    ${WHITE}Доступные интерфейсы:${NC}"
     
     local interfaces=()
     while IFS= read -r line; do
@@ -49,13 +49,14 @@ select_interface() {
     local i=1
     for iface in "${interfaces[@]}"; do
         local ip_addr=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
-        echo -e "  ${WHITE}$i)${NC} $iface ${CYAN}($ip_addr)${NC}"
+        menu_item "$i" "$iface ${DIM}($ip_addr)${NC}"
         ((i++))
     done
     
     echo ""
     local detected=$(detect_interface)
-    read -p "Выбор [по умолчанию: $detected]: " choice
+    local choice
+    input_value "Выбор интерфейса" "$detected" choice
     
     if [[ -z "$choice" ]]; then
         echo "$detected"
@@ -366,18 +367,20 @@ SERVICE
 add_limit() {
     check_tc_available || return 1
     
-    print_section "➕ Добавление лимита скорости"
+    print_header_mini "Добавление лимита скорости"
     
     # Выбор интерфейса
     echo ""
-    echo -e "${WHITE}Шаг 1: Выбор сетевого интерфейса${NC}"
+    echo -e "    ${WHITE}Шаг 1: Выбор сетевого интерфейса${NC}"
     local iface=$(select_interface) || return 1
     
     # Ввод порта
     echo ""
-    echo -e "${WHITE}Шаг 2: Укажите порт${NC}"
-    echo -e "${CYAN}Примеры: 443 (HTTPS/VPN), 80 (HTTP), 8443${NC}"
-    read -p "Порт для ограничения: " port
+    echo -e "    ${WHITE}Шаг 2: Укажите порт${NC}"
+    echo -e "    ${DIM}Примеры: 443 (HTTPS/VPN), 80 (HTTP), 8443${NC}"
+    
+    local port
+    input_value "Порт для ограничения" "" port
     
     if ! validate_port "$port"; then
         log_error "Неверный порт: $port"
@@ -387,26 +390,26 @@ add_limit() {
     # Проверка существующего лимита
     if [[ -f "$TRAFFIC_CONFIG_DIR/port-${port}.conf" ]]; then
         log_warn "Для порта $port уже есть лимит!"
-        if ! confirm "Перезаписать?" "n"; then
+        if ! confirm_action "Перезаписать?" "n"; then
             return 1
         fi
     fi
     
     # Лимиты
     echo ""
-    echo -e "${WHITE}Шаг 3: Лимиты скорости (Мбит/с)${NC}"
-    read -p "Скачивание (Download) на клиента [10]: " down_rate
-    down_rate=${down_rate:-10}
+    echo -e "    ${WHITE}Шаг 3: Лимиты скорости (Мбит/с)${NC}"
     
-    read -p "Загрузка (Upload) на клиента [10]: " up_rate
-    up_rate=${up_rate:-10}
+    local down_rate up_rate
+    input_value "Скачивание (Download) на клиента" "10" down_rate
+    input_value "Загрузка (Upload) на клиента" "10" up_rate
     
     # Общий лимит
     echo ""
-    echo -e "${WHITE}Шаг 4: Общий лимит порта${NC}"
-    echo -e "${CYAN}Максимум для всех клиентов вместе (0 = без лимита)${NC}"
-    read -p "Общий лимит (Мбит/с) [0]: " total_rate
-    total_rate=${total_rate:-0}
+    echo -e "    ${WHITE}Шаг 4: Общий лимит порта${NC}"
+    echo -e "    ${DIM}Максимум для всех клиентов вместе (0 = без лимита)${NC}"
+    
+    local total_rate
+    input_value "Общий лимит (Мбит/с)" "0" total_rate
     
     local total_limit="10000mbit"
     if [[ "$total_rate" =~ ^[0-9]+$ ]] && [[ "$total_rate" -gt 0 ]]; then
@@ -415,19 +418,19 @@ add_limit() {
     
     # Подтверждение
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${WHITE}Подтверждение:${NC}"
-    echo -e "  Интерфейс: ${CYAN}$iface${NC}"
-    echo -e "  Порт: ${CYAN}$port${NC}"
-    echo -e "  Download: ${GREEN}${down_rate} Мбит/с${NC} на клиента"
-    echo -e "  Upload: ${YELLOW}${up_rate} Мбит/с${NC} на клиента"
+    print_divider
+    echo ""
+    echo -e "    ${WHITE}Подтверждение:${NC}"
+    show_info "Интерфейс" "$iface"
+    show_info "Порт" "$port"
+    show_info "Download" "${down_rate} Мбит/с на клиента"
+    show_info "Upload" "${up_rate} Мбит/с на клиента"
     if [[ "$total_limit" != "10000mbit" ]]; then
-        echo -e "  Общий лимит: ${RED}${total_rate} Мбит/с${NC}"
+        show_info "Общий лимит" "${total_rate} Мбит/с"
     fi
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     
-    if ! confirm "Применить?" "y"; then
+    if ! confirm_action "Применить?" "y"; then
         log_info "Отменено"
         return 1
     fi
@@ -470,23 +473,24 @@ remove_limit() {
         return 1
     fi
     
-    print_section "➖ Удаление лимита"
+    print_header_mini "Удаление лимита"
     
     echo ""
-    echo -e "${WHITE}Настроенные лимиты:${NC}"
+    echo -e "    ${WHITE}Настроенные лимиты:${NC}"
+    echo ""
+    
     local i=1
     for conf in "${configs[@]}"; do
         source "$conf"
-        echo -e "  ${WHITE}$i)${NC} Порт ${CYAN}$PORT${NC} — $DOWN_LIMIT↓ / $UP_LIMIT↑ на ${CYAN}$IFACE${NC}"
+        menu_item "$i" "Порт ${CYAN}$PORT${NC} — $DOWN_LIMIT↓ / $UP_LIMIT↑ на ${DIM}$IFACE${NC}"
         ((i++))
     done
-    echo -e "  ${WHITE}a)${NC} ${RED}Удалить ВСЕ${NC}"
-    echo ""
+    menu_item "a" "Удалить ВСЕ" "${RED}"
     
-    read -p "Выбор: " choice
+    local choice=$(read_choice)
     
-    if [[ "$choice" == "a" || "$choice" == "A" ]]; then
-        if confirm "Удалить ВСЕ лимиты?" "n"; then
+    if [[ "${choice,,}" == "a" ]]; then
+        if confirm_action "Удалить ВСЕ лимиты?" "n"; then
             rm -rf "$TRAFFIC_CONFIG_DIR"
             systemctl stop shield-traffic 2>/dev/null
             "$TRAFFIC_SCRIPT" stop 2>/dev/null
@@ -496,7 +500,7 @@ remove_limit() {
         local conf="${configs[$((choice-1))]}"
         source "$conf"
         
-        if confirm "Удалить лимит для порта $PORT?" "n"; then
+        if confirm_action "Удалить лимит для порта $PORT?" "n"; then
             rm -f "$conf"
             systemctl restart shield-traffic 2>/dev/null
             log_info "Лимит для порта $PORT удалён"
@@ -507,23 +511,23 @@ remove_limit() {
 }
 
 # Показать статус
-show_status() {
-    print_section "📊 Статус ограничения трафика"
+show_traffic_status() {
+    print_header_mini "Статус ограничения трафика"
     
     echo ""
     
     # Проверка сервиса
     if systemctl is-active --quiet shield-traffic 2>/dev/null; then
-        echo -e "  Сервис: ${GREEN}● Активен${NC}"
+        show_status_line "Сервис" "on" "Активен"
     else
-        echo -e "  Сервис: ${RED}○ Не активен${NC}"
+        show_status_line "Сервис" "off" "Не активен"
     fi
     
     # Автозапуск
     if systemctl is-enabled --quiet shield-traffic 2>/dev/null; then
-        echo -e "  Автозапуск: ${GREEN}Включен${NC}"
+        show_status_line "Автозапуск" "on"
     else
-        echo -e "  Автозапуск: ${YELLOW}Выключен${NC}"
+        show_status_line "Автозапуск" "off"
     fi
     
     echo ""
@@ -532,22 +536,22 @@ show_status() {
     local configs=($(get_configured_limits))
     
     if [[ ${#configs[@]} -eq 0 ]]; then
-        echo -e "  ${YELLOW}Нет настроенных лимитов${NC}"
+        echo -e "    ${DIM}Нет настроенных лимитов${NC}"
         return
     fi
     
-    echo -e "${WHITE}Активные лимиты:${NC}"
+    echo -e "    ${WHITE}Активные лимиты:${NC}"
     echo ""
     
     local idx=1
     for conf in "${configs[@]}"; do
         source "$conf"
         
-        echo -e "  ${CYAN}▸${NC} Порт ${YELLOW}$PORT${NC} на ${CYAN}$IFACE${NC}"
-        echo -e "    Download: ${GREEN}$DOWN_LIMIT${NC} | Upload: ${YELLOW}$UP_LIMIT${NC}"
+        echo -e "    ${CYAN}▸${NC} Порт ${WHITE}$PORT${NC} на ${DIM}$IFACE${NC}"
+        echo -e "      Download: ${GREEN}$DOWN_LIMIT${NC} | Upload: ${YELLOW}$UP_LIMIT${NC}"
         
         if [[ "${TOTAL_LIMIT:-10000mbit}" != "10000mbit" ]]; then
-            echo -e "    Общий лимит: ${RED}$TOTAL_LIMIT${NC}"
+            echo -e "      Общий лимит: ${RED}$TOTAL_LIMIT${NC}"
         fi
         
         # Статистика если активен
@@ -557,7 +561,7 @@ show_status() {
             
             if [[ -n "$bytes" ]] && [[ "$bytes" -gt 0 ]]; then
                 local human=$(numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || echo "$bytes B")
-                echo -e "    Передано: ${PURPLE}$human${NC}"
+                echo -e "      Передано: ${PURPLE}$human${NC}"
             fi
         fi
         
@@ -567,8 +571,8 @@ show_status() {
 }
 
 # Просмотр логов
-show_logs() {
-    print_section "📜 Логи"
+show_traffic_logs() {
+    print_header_mini "Логи"
     
     if [[ -f "$TRAFFIC_LOG" ]]; then
         echo ""
@@ -578,7 +582,7 @@ show_logs() {
     fi
     
     echo ""
-    echo -e "${WHITE}Журнал systemd:${NC}"
+    echo -e "    ${WHITE}Журнал systemd:${NC}"
     journalctl -u shield-traffic --no-pager -n 20 2>/dev/null
 }
 
@@ -609,93 +613,6 @@ toggle_autostart() {
     fi
 }
 
-# ============================================
-# МЕНЮ
-# ============================================
-
-traffic_menu() {
-    while true; do
-        print_header
-        print_section "🚦 Ограничение скорости клиентов"
-        
-        echo ""
-        echo -e "${WHITE}Персональный лимит скорости для каждого клиента на порту.${NC}"
-        echo ""
-        
-        # Быстрый статус
-        local configs=($(get_configured_limits))
-        local is_active=$(is_limiter_active && echo "true" || echo "false")
-        
-        if [[ "$is_active" == "true" ]] && [[ ${#configs[@]} -gt 0 ]]; then
-            echo -e "  ${GREEN}●${NC} Статус: ${GREEN}Активен${NC} (${#configs[@]} портов)"
-        elif [[ ${#configs[@]} -gt 0 ]]; then
-            echo -e "  ${YELLOW}○${NC} Статус: ${YELLOW}Настроен, не запущен${NC}"
-        else
-            echo -e "  ${RED}○${NC} Статус: ${RED}Не настроен${NC}"
-        fi
-        
-        # Список портов
-        if [[ ${#configs[@]} -gt 0 ]]; then
-            for conf in "${configs[@]}"; do
-                source "$conf"
-                echo -e "    └─ Порт ${CYAN}$PORT${NC}: ${GREEN}$DOWN_LIMIT${NC}↓ / ${YELLOW}$UP_LIMIT${NC}↑"
-            done
-        fi
-        
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} 📊 Подробный статус"
-        echo -e "  ${WHITE}2)${NC} ➕ Добавить лимит для порта"
-        echo -e "  ${WHITE}3)${NC} ➖ Удалить лимит"
-        echo -e "  ${WHITE}4)${NC} 🔄 Перезапустить"
-        echo -e "  ${WHITE}5)${NC} 📜 Просмотр логов"
-        echo ""
-        
-        if systemctl is-enabled --quiet shield-traffic 2>/dev/null; then
-            echo -e "  ${WHITE}6)${NC} ❌ Выключить автозапуск"
-        else
-            echo -e "  ${WHITE}6)${NC} ✅ Включить автозапуск"
-        fi
-        
-        if [[ "$is_active" == "true" ]]; then
-            echo -e "  ${WHITE}7)${NC} 🛑 Остановить"
-        else
-            echo -e "  ${WHITE}7)${NC} ▶️  Запустить"
-        fi
-        
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        
-        read -p "Выберите действие: " choice
-        
-        case $choice in
-            1) show_status ;;
-            2) add_limit ;;
-            3) remove_limit ;;
-            4) restart_limiter ;;
-            5) show_logs ;;
-            6) toggle_autostart ;;
-            7)
-                if [[ "$is_active" == "true" ]]; then
-                    systemctl stop shield-traffic
-                    "$TRAFFIC_SCRIPT" stop 2>/dev/null
-                    log_info "Остановлено"
-                else
-                    generate_tc_script
-                    create_systemd_service
-                    systemctl start shield-traffic
-                    log_info "Запущено"
-                fi
-                ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
-        esac
-        
-        press_any_key
-    done
-}
-
 # Статус для главного меню
 get_traffic_status_line() {
     local configs=($(get_configured_limits))
@@ -707,4 +624,112 @@ get_traffic_status_line() {
     else
         echo -e "${RED}○${NC} Выкл"
     fi
+}
+
+# ============================================
+# МЕНЮ
+# ============================================
+
+traffic_menu() {
+    while true; do
+        print_header_mini "Ограничение скорости клиентов"
+        
+        echo ""
+        echo -e "    ${DIM}Персональный лимит скорости для каждого клиента на порту.${NC}"
+        echo ""
+        
+        # Быстрый статус
+        local configs=($(get_configured_limits))
+        local is_active=$(is_limiter_active && echo "true" || echo "false")
+        
+        if [[ "$is_active" == "true" ]] && [[ ${#configs[@]} -gt 0 ]]; then
+            show_status_line "Статус" "on" "Активен (${#configs[@]} портов)"
+        elif [[ ${#configs[@]} -gt 0 ]]; then
+            show_status_line "Статус" "warn" "Настроен, не запущен"
+        else
+            show_status_line "Статус" "off" "Не настроен"
+        fi
+        
+        # Список портов
+        if [[ ${#configs[@]} -gt 0 ]]; then
+            for conf in "${configs[@]}"; do
+                source "$conf"
+                echo -e "      └─ Порт ${CYAN}$PORT${NC}: ${GREEN}$DOWN_LIMIT${NC}↓ / ${YELLOW}$UP_LIMIT${NC}↑"
+            done
+        fi
+        
+        echo ""
+        print_divider
+        echo ""
+        
+        menu_item "1" "Подробный статус"
+        menu_item "2" "Добавить лимит для порта"
+        menu_item "3" "Удалить лимит"
+        menu_item "4" "Перезапустить"
+        menu_item "5" "Просмотр логов"
+        menu_divider
+        
+        if systemctl is-enabled --quiet shield-traffic 2>/dev/null; then
+            menu_item "6" "Выключить автозапуск"
+        else
+            menu_item "6" "Включить автозапуск"
+        fi
+        
+        if [[ "$is_active" == "true" ]]; then
+            menu_item "7" "Остановить"
+        else
+            menu_item "7" "Запустить"
+        fi
+        
+        menu_divider
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1)
+                show_traffic_status
+                press_any_key
+                ;;
+            2)
+                add_limit
+                press_any_key
+                ;;
+            3)
+                remove_limit
+                press_any_key
+                ;;
+            4)
+                restart_limiter
+                press_any_key
+                ;;
+            5)
+                show_traffic_logs
+                press_any_key
+                ;;
+            6)
+                toggle_autostart
+                press_any_key
+                ;;
+            7)
+                if [[ "$is_active" == "true" ]]; then
+                    systemctl stop shield-traffic
+                    "$TRAFFIC_SCRIPT" stop 2>/dev/null
+                    log_info "Остановлено"
+                else
+                    generate_tc_script
+                    create_systemd_service
+                    systemctl start shield-traffic
+                    log_info "Запущено"
+                fi
+                press_any_key
+                ;;
+            0|q|'')
+                return
+                ;;
+            *)
+                # Неверный ввод - просто обновляем экран
+                ;;
+        esac
+    done
 }

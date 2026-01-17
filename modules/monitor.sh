@@ -659,15 +659,14 @@ setup_monitoring() {
 
 monitor_menu() {
     while true; do
-        print_header
-        print_section "📊 Мониторинг ресурсов"
+        print_header_mini "Мониторинг ресурсов"
         
         # Текущие значения
-        local disk=$(get_disk_usage)
-        local ram=$(get_ram_usage)
-        local cpu=$(get_cpu_usage)
-        local disk_free=$(get_disk_free)
-        local ram_free=$(get_ram_free)
+        local disk=$(get_disk_usage 2>/dev/null || echo 0)
+        local ram=$(get_ram_usage 2>/dev/null || echo 0)
+        local cpu=$(get_cpu_usage 2>/dev/null || echo 0)
+        local disk_free=$(get_disk_free 2>/dev/null || echo "N/A")
+        local ram_free=$(get_ram_free 2>/dev/null || echo "N/A")
         
         # Настройки
         local enabled=$(get_config "MONITOR_ENABLED" "false")
@@ -678,146 +677,116 @@ monitor_menu() {
         local cleanup_threshold=$(get_config "MONITOR_CLEANUP_THRESHOLD" "80")
         local schedule=$(get_config "CLEANUP_SCHEDULE" "daily")
         
-        echo ""
-        echo -e "${WHITE}  Текущее состояние:${NC}"
-        echo ""
-        
-        # Диск с цветом
-        if [[ $disk -ge $disk_threshold ]]; then
-            echo -e "    💾 Диск: ${RED}${disk}%${NC} (свободно: $disk_free) ${RED}⚠️${NC}"
-        elif [[ $disk -ge $cleanup_threshold ]]; then
-            echo -e "    💾 Диск: ${YELLOW}${disk}%${NC} (свободно: $disk_free)"
-        else
-            echo -e "    💾 Диск: ${GREEN}${disk}%${NC} (свободно: $disk_free)"
-        fi
-        
-        # RAM с цветом
-        if [[ $ram -ge $ram_threshold ]]; then
-            echo -e "    🧠 RAM:  ${RED}${ram}%${NC} (свободно: $ram_free) ${RED}⚠️${NC}"
-        elif [[ $ram -ge 70 ]]; then
-            echo -e "    🧠 RAM:  ${YELLOW}${ram}%${NC} (свободно: $ram_free)"
-        else
-            echo -e "    🧠 RAM:  ${GREEN}${ram}%${NC} (свободно: $ram_free)"
-        fi
-        
-        # CPU с цветом
-        if [[ $cpu -ge $cpu_threshold ]]; then
-            echo -e "    ⚡ CPU:  ${RED}${cpu}%${NC} ${RED}⚠️${NC}"
-        elif [[ $cpu -ge 70 ]]; then
-            echo -e "    ⚡ CPU:  ${YELLOW}${cpu}%${NC}"
-        else
-            echo -e "    ⚡ CPU:  ${GREEN}${cpu}%${NC}"
-        fi
-        
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        
-        # Статус мониторинга
+        # Статус блок
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
         if [[ "$enabled" == "true" ]]; then
-            echo -e "  ${GREEN}●${NC} Мониторинг: ${GREEN}Активен${NC}"
-            echo -e "    Пороги: диск ${CYAN}${disk_threshold}%${NC} | RAM ${CYAN}${ram_threshold}%${NC} | CPU ${CYAN}${cpu_threshold}%${NC}"
+            echo -e "    ${DIM}│${NC} Monitor: ${GREEN}● Active${NC}     Cleanup: $([ "$auto_cleanup" == "true" ] && echo "${GREEN}ON${NC}" || echo "${RED}OFF${NC}")             ${DIM}│${NC}"
         else
-            echo -e "  ${RED}○${NC} Мониторинг: ${RED}Не настроен${NC}"
+            echo -e "    ${DIM}│${NC} Monitor: ${RED}○ Off${NC}                                      ${DIM}│${NC}"
         fi
-        
-        # Статус автоочистки
-        if [[ "$auto_cleanup" == "true" ]]; then
-            echo -e "  ${GREEN}●${NC} Автоочистка: при ${CYAN}>${cleanup_threshold}%${NC} диска"
-        else
-            echo -e "  ${YELLOW}○${NC} Автоочистка: ${YELLOW}отключена${NC}"
-        fi
-        
-        # Расписание
-        case "$schedule" in
-            "daily") echo -e "  📅 Плановая очистка: ${CYAN}ежедневно 4:00${NC}" ;;
-            "twice") echo -e "  📅 Плановая очистка: ${CYAN}2 раза/день${NC}" ;;
-            "weekly") echo -e "  📅 Плановая очистка: ${CYAN}еженедельно${NC}" ;;
-            "off") echo -e "  📅 Плановая очистка: ${YELLOW}отключена${NC}" ;;
-        esac
-        
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
         echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        
+        # Текущие значения с цветом
+        echo -e "    ${WHITE}Ресурсы:${NC}"
         echo ""
-        echo -e "  ${WHITE}1)${NC} 🔧 Настроить мониторинг"
-        echo -e "  ${WHITE}2)${NC} 🧹 Запустить очистку сейчас"
-        echo -e "  ${WHITE}3)${NC} 📋 Изменить пороги алертов"
-        echo -e "  ${WHITE}4)${NC} ⏰ Изменить расписание очистки"
-        echo -e "  ${WHITE}5)${NC} 📊 Просмотр логов мониторинга"
-        echo ""
+        
+        # Диск
+        local disk_color=$GREEN
+        [[ $disk -ge $cleanup_threshold ]] && disk_color=$YELLOW
+        [[ $disk -ge $disk_threshold ]] && disk_color=$RED
+        echo -e "    Disk: ${disk_color}${disk}%${NC} (free: $disk_free)"
+        
+        # RAM
+        local ram_color=$GREEN
+        [[ $ram -ge 70 ]] && ram_color=$YELLOW
+        [[ $ram -ge $ram_threshold ]] && ram_color=$RED
+        echo -e "    RAM:  ${ram_color}${ram}%${NC} (free: $ram_free)"
+        
+        # CPU
+        local cpu_color=$GREEN
+        [[ $cpu -ge 70 ]] && cpu_color=$YELLOW
+        [[ $cpu -ge $cpu_threshold ]] && cpu_color=$RED
+        echo -e "    CPU:  ${cpu_color}${cpu}%${NC}"
+        
+        menu_divider
+        menu_item "1" "Настроить мониторинг"
+        menu_item "2" "Запустить очистку"
+        menu_item "3" "Изменить пороги"
+        menu_item "4" "Расписание очистки"
+        menu_item "5" "Логи мониторинга"
+        menu_divider
         
         if [[ "$enabled" == "true" ]]; then
-            echo -e "  ${WHITE}6)${NC} 🔴 Отключить мониторинг"
+            echo -e "    ${RED}[6]${NC} ${RED}Отключить мониторинг${NC}"
         else
-            echo -e "  ${WHITE}6)${NC} 🟢 Включить мониторинг"
+            echo -e "    ${GREEN}[6]${NC} ${GREEN}Включить мониторинг${NC}"
         fi
         
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        menu_item "0" "Назад"
         
-        case $choice in
-            1) setup_monitoring ;;
-            2) 
-                full_cleanup
-                ;;
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1) setup_monitoring; press_any_key ;;
+            2) full_cleanup; press_any_key ;;
             3)
-                # Изменить пороги
                 echo ""
-                read -p "Порог диска (%) [$disk_threshold]: " new_disk
-                read -p "Порог RAM (%) [$ram_threshold]: " new_ram
-                read -p "Порог CPU (%) [$cpu_threshold]: " new_cpu
+                local new_disk new_ram new_cpu
+                input_value "Порог диска (%)" "$disk_threshold" new_disk
+                input_value "Порог RAM (%)" "$ram_threshold" new_ram
+                input_value "Порог CPU (%)" "$cpu_threshold" new_cpu
                 
                 save_config "MONITOR_DISK_THRESHOLD" "${new_disk:-$disk_threshold}"
                 save_config "MONITOR_RAM_THRESHOLD" "${new_ram:-$ram_threshold}"
                 save_config "MONITOR_CPU_THRESHOLD" "${new_cpu:-$cpu_threshold}"
                 
-                create_monitor_script
+                create_monitor_script 2>/dev/null
                 log_info "Пороги обновлены"
+                press_any_key
                 ;;
             4)
-                # Изменить расписание
                 echo ""
-                echo -e "${WHITE}Расписание плановой очистки:${NC}"
-                echo -e "  ${CYAN}1${NC}) Ежедневно (4:00)"
-                echo -e "  ${CYAN}2${NC}) 2 раза в день (4:00, 16:00)"
-                echo -e "  ${CYAN}3${NC}) Еженедельно (воскр. 4:00)"
-                echo -e "  ${CYAN}4${NC}) Отключить"
-                read -p "Выбор: " sched
+                echo -e "    ${WHITE}Расписание очистки:${NC}"
+                menu_item "1" "Ежедневно (4:00)"
+                menu_item "2" "2 раза/день"
+                menu_item "3" "Еженедельно"
+                menu_item "4" "Отключить"
                 
+                local sched=$(read_choice)
                 case "$sched" in
-                    1) save_config "CLEANUP_SCHEDULE" "daily" ;;
-                    2) save_config "CLEANUP_SCHEDULE" "twice" ;;
-                    3) save_config "CLEANUP_SCHEDULE" "weekly" ;;
-                    4) save_config "CLEANUP_SCHEDULE" "off" ;;
+                    1) save_config "CLEANUP_SCHEDULE" "daily"; log_info "Ежедневно" ;;
+                    2) save_config "CLEANUP_SCHEDULE" "twice"; log_info "2 раза/день" ;;
+                    3) save_config "CLEANUP_SCHEDULE" "weekly"; log_info "Еженедельно" ;;
+                    4) save_config "CLEANUP_SCHEDULE" "off"; log_info "Отключено" ;;
                 esac
                 
-                setup_cleanup_cron
+                setup_cleanup_cron 2>/dev/null
+                press_any_key
                 ;;
             5)
-                # Просмотр логов
                 echo ""
-                echo -e "${WHITE}Последние записи мониторинга:${NC}"
+                echo -e "    ${WHITE}Последние записи:${NC}"
                 echo ""
                 if [[ -f "$MONITOR_LOG" ]]; then
-                    tail -30 "$MONITOR_LOG"
+                    tail -30 "$MONITOR_LOG" | while read line; do
+                        echo "    $line"
+                    done
                 else
-                    echo "Логов пока нет"
+                    log_warn "Логов пока нет"
                 fi
+                press_any_key
                 ;;
             6)
-                # Включить/выключить
                 if [[ "$enabled" == "true" ]]; then
-                    disable_monitor
+                    disable_monitor 2>/dev/null
                 else
-                    enable_monitor
+                    enable_monitor 2>/dev/null
                 fi
+                press_any_key
                 ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }
 
@@ -826,10 +795,10 @@ get_monitor_status_line() {
     local enabled=$(get_config "MONITOR_ENABLED" "false")
     
     if [[ "$enabled" == "true" ]]; then
-        local disk=$(get_disk_usage)
-        local ram=$(get_ram_usage)
+        local disk=$(get_disk_usage 2>/dev/null || echo 0)
+        local ram=$(get_ram_usage 2>/dev/null || echo 0)
         echo -e "${GREEN}●${NC} D:${disk}% R:${ram}%"
     else
-        echo -e "${RED}○${NC} Выключен"
+        echo -e "${RED}○${NC} OFF"
     fi
 }

@@ -811,56 +811,74 @@ bantime_menu() {
 # Главное меню Fail2Ban
 fail2ban_menu() {
     while true; do
-        print_header
-        print_section "🤖 Управление Fail2Ban"
+        print_header_mini "Fail2Ban"
         
-        check_fail2ban_status
+        # Статус
+        local f2b_status=$(systemctl is-active fail2ban 2>/dev/null || echo "inactive")
+        local jails_count=$(fail2ban-client status 2>/dev/null | grep "Number of jail" | awk '{print $NF}' || echo 0)
+        local total_banned=$(fail2ban-client status 2>/dev/null | grep -A100 "Jail list" | grep "Currently banned" | awk '{sum+=$NF} END {print sum}' 2>/dev/null || echo 0)
+        local bantime_human=$(get_bantime_human 2>/dev/null || echo "N/A")
         
-        # Показываем текущее время бана
-        local bantime_human=$(get_bantime_human)
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
+        if [[ "$f2b_status" == "active" ]]; then
+            echo -e "    ${DIM}│${NC} Status: ${GREEN}● Running${NC}      Jails: ${CYAN}$jails_count${NC}                ${DIM}│${NC}"
+        else
+            echo -e "    ${DIM}│${NC} Status: ${RED}○ Stopped${NC}                                    ${DIM}│${NC}"
+        fi
+        echo -e "    ${DIM}│${NC} Banned: ${RED}$total_banned${NC}            Ban time: ${CYAN}$bantime_human${NC}        ${DIM}│${NC}"
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
         echo ""
-        echo -e "  ${WHITE}Время бана:${NC} ${CYAN}$bantime_human${NC}"
         
-        echo ""
-        echo -e "  ${WHITE}1)${NC} Статус Fail2Ban"
-        echo -e "  ${WHITE}2)${NC} Список забаненных IP"
-        echo -e "  ${WHITE}3)${NC} Разбанить IP"
-        echo -e "  ${WHITE}4)${NC} Забанить IP"
-        echo -e "  ${WHITE}5)${NC} 🔔 Настройка уведомлений"
-        echo -e "  ${WHITE}6)${NC} ⏱️  Настройка времени бана"
-        echo -e "  ${WHITE}7)${NC} 🛡️  Расширенная защита"
-        echo -e "  ${WHITE}8)${NC} 📋 Whitelist (доверенные IP)"
-        echo -e "  ${WHITE}9)${NC} Перезапустить Fail2Ban"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        menu_item "1" "Статус Fail2Ban"
+        menu_item "2" "Список забаненных IP"
+        menu_item "3" "Разбанить IP"
+        menu_item "4" "Забанить IP"
+        menu_divider
+        menu_item "5" "Уведомления"
+        menu_item "6" "Время бана"
+        menu_item "7" "Расширенная защита"
+        menu_item "8" "Whitelist (доверенные IP)"
+        menu_divider
+        menu_item "9" "Перезапустить Fail2Ban"
+        menu_item "0" "Назад"
         
-        case $choice in
-            1) check_fail2ban_status ;;
-            2) show_banned_ips ;;
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1) 
+                check_fail2ban_status 
+                press_any_key
+                ;;
+            2) 
+                show_banned_ips 
+                press_any_key
+                ;;
             3)
                 show_banned_ips
                 echo ""
-                read -p "IP для разбана: " ip
-                unban_ip "$ip"
+                local ip
+                input_value "IP для разбана" "" ip
+                [[ -n "$ip" ]] && unban_ip "$ip"
+                press_any_key
                 ;;
             4)
-                read -p "IP для бана: " ip
-                ban_ip "$ip"
+                local ip
+                input_value "IP для бана" "" ip
+                [[ -n "$ip" ]] && ban_ip "$ip"
+                press_any_key
                 ;;
             5) notifications_menu ;;
             6) bantime_menu ;;
             7) extended_protection_menu ;;
-            8) whitelist_menu ;;
+            8) whitelist_f2b_menu ;;
             9)
+                log_step "Перезапуск Fail2Ban..."
                 systemctl restart fail2ban
                 log_info "Fail2Ban перезапущен"
+                press_any_key
                 ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }
 
@@ -1256,223 +1274,204 @@ auto_whitelist_current_ip() {
     return 1
 }
 
-# Меню whitelist
-whitelist_menu() {
+# Меню whitelist Fail2Ban
+whitelist_f2b_menu() {
     while true; do
-        print_header
-        print_section "📋 Whitelist - Доверенные IP"
+        print_header_mini "Whitelist (Fail2Ban)"
         
-        # Определяем текущий IP
-        local current_ip=$(get_current_session_ip)
+        local current_ip=$(get_current_session_ip 2>/dev/null)
         local current_in_whitelist=false
+        [[ -n "$current_ip" ]] && grep -q "^$current_ip$" "$F2B_WHITELIST" 2>/dev/null && current_in_whitelist=true
         
-        if [[ -n "$current_ip" ]]; then
-            if grep -q "^$current_ip$" "$F2B_WHITELIST" 2>/dev/null; then
-                current_in_whitelist=true
-            fi
-        fi
-        
-        echo ""
-        echo -e "  ${WHITE}IP в whitelist никогда не будут забанены${NC}"
+        echo -e "    ${DIM}IP в whitelist никогда не будут забанены Fail2Ban${NC}"
         echo ""
         
-        # Показываем текущий IP
         if [[ -n "$current_ip" ]]; then
             if [[ "$current_in_whitelist" == true ]]; then
-                echo -e "  Ваш IP: ${GREEN}$current_ip${NC} ${GREEN}✓ в whitelist${NC}"
+                echo -e "    Ваш IP: ${GREEN}$current_ip${NC} ${GREEN}✓ защищён${NC}"
             else
-                echo -e "  Ваш IP: ${YELLOW}$current_ip${NC} ${RED}✗ НЕ в whitelist!${NC}"
+                echo -e "    Ваш IP: ${YELLOW}$current_ip${NC} ${RED}✗ НЕ защищён!${NC}"
             fi
+            echo ""
         fi
         
-        echo ""
-        
-        local whitelist=$(get_whitelist)
+        local whitelist=$(get_whitelist 2>/dev/null)
         if [[ -n "$whitelist" ]]; then
-            echo -e "  ${WHITE}Текущий whitelist:${NC}"
+            echo -e "    ${WHITE}Whitelist:${NC}"
             echo "$whitelist" | while read ip; do
                 if [[ "$ip" == "$current_ip" ]]; then
-                    echo -e "    ${GREEN}•${NC} $ip ${CYAN}(вы)${NC}"
+                    echo -e "      ${GREEN}●${NC} $ip ${CYAN}(вы)${NC}"
                 else
-                    echo -e "    ${GREEN}•${NC} $ip"
+                    echo -e "      ${GREEN}●${NC} $ip"
                 fi
             done
         else
-            echo -e "  ${YELLOW}Whitelist пуст${NC}"
+            echo -e "    ${YELLOW}Whitelist пуст${NC}"
         fi
         
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
+        menu_divider
         
-        # Показываем опцию добавить себя если не в whitelist
         if [[ -n "$current_ip" ]] && [[ "$current_in_whitelist" == false ]]; then
-            echo -e "  ${WHITE}1)${NC} 🛡️  ${GREEN}Добавить мой IP ($current_ip)${NC}"
-            echo -e "  ${WHITE}2)${NC} Добавить другой IP"
+            echo -e "    ${GREEN}[1]${NC} ${GREEN}Добавить мой IP ($current_ip)${NC}"
+            menu_item "2" "Добавить другой IP"
         else
-            echo -e "  ${WHITE}1)${NC} Добавить IP"
+            menu_item "1" "Добавить IP"
         fi
-        echo -e "  ${WHITE}3)${NC} Удалить IP"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        menu_item "3" "Удалить IP"
+        menu_item "0" "Назад"
         
-        case $choice in
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
             1)
                 if [[ -n "$current_ip" ]] && [[ "$current_in_whitelist" == false ]]; then
                     add_to_whitelist "$current_ip" "Админ (добавлен вручную)"
                 else
-                    echo ""
-                    read -p "IP для whitelist: " ip
-                    read -p "Комментарий (опционально): " comment
-                    add_to_whitelist "$ip" "$comment"
+                    local ip comment
+                    input_value "IP для whitelist" "" ip
+                    input_value "Комментарий (опционально)" "" comment
+                    [[ -n "$ip" ]] && add_to_whitelist "$ip" "$comment"
                 fi
+                press_any_key
                 ;;
             2)
-                echo ""
-                read -p "IP для whitelist: " ip
-                read -p "Комментарий (опционально): " comment
-                add_to_whitelist "$ip" "$comment"
+                local ip comment
+                input_value "IP для whitelist" "" ip
+                input_value "Комментарий (опционально)" "" comment
+                [[ -n "$ip" ]] && add_to_whitelist "$ip" "$comment"
+                press_any_key
                 ;;
             3)
-                echo ""
-                read -p "IP для удаления: " ip
-                remove_from_whitelist "$ip"
+                local ip
+                input_value "IP для удаления" "" ip
+                [[ -n "$ip" ]] && remove_from_whitelist "$ip"
+                press_any_key
                 ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }
 
 # Меню расширенной защиты
 extended_protection_menu() {
     while true; do
-        print_header
-        print_section "🛡️ Расширенная защита Fail2Ban"
+        print_header_mini "Расширенная защита Fail2Ban"
         
+        # Статус jail'ов
+        local portscan_status=$(get_jail_status "portscan" 2>/dev/null)
+        local nginx_auth_status=$(get_jail_status "nginx-http-auth-shield" 2>/dev/null)
+        local nginx_bots_status=$(get_jail_status "nginx-badbots-shield" 2>/dev/null)
+        local mysql_status=$(get_jail_status "mysqld-auth-shield" 2>/dev/null)
+        local ignore_ports=$(get_config "PORTSCAN_IGNORE_PORTS" "443,8443" 2>/dev/null)
+        
+        echo -e "    ${WHITE}Статус jail'ов:${NC}"
         echo ""
-        echo -e "  ${WHITE}Статус jail'ов:${NC}"
-        echo ""
+        echo -e "    ${GREEN}●${NC} SSH брутфорс      — ${GREEN}Включен${NC}"
         
-        # SSH (всегда включен)
-        echo -e "    ${GREEN}●${NC} SSH брутфорс — ${GREEN}Включен${NC}"
-        
-        # Portscan
-        local portscan_status=$(get_jail_status "portscan")
         if [[ "$portscan_status" == "enabled" ]]; then
-            echo -e "    ${GREEN}●${NC} Сканирование портов — ${GREEN}Включен${NC}"
+            echo -e "    ${GREEN}●${NC} Portscan          — ${GREEN}Включен${NC}"
         else
-            echo -e "    ${RED}○${NC} Сканирование портов — ${RED}Выключен${NC}"
+            echo -e "    ${RED}○${NC} Portscan          — ${RED}Выключен${NC}"
         fi
         
-        # Nginx auth
-        local nginx_auth_status=$(get_jail_status "nginx-http-auth-shield")
         if [[ "$nginx_auth_status" == "enabled" ]]; then
-            echo -e "    ${GREEN}●${NC} Nginx брутфорс — ${GREEN}Включен${NC}"
+            echo -e "    ${GREEN}●${NC} Nginx брутфорс    — ${GREEN}Включен${NC}"
         else
-            echo -e "    ${RED}○${NC} Nginx брутфорс — ${RED}Выключен${NC}"
+            echo -e "    ${RED}○${NC} Nginx брутфорс    — ${RED}Выключен${NC}"
         fi
         
-        # Nginx badbots
-        local nginx_bots_status=$(get_jail_status "nginx-badbots-shield")
         if [[ "$nginx_bots_status" == "enabled" ]]; then
-            echo -e "    ${GREEN}●${NC} Nginx сканеры/боты — ${GREEN}Включен${NC}"
+            echo -e "    ${GREEN}●${NC} Nginx боты        — ${GREEN}Включен${NC}"
         else
-            echo -e "    ${RED}○${NC} Nginx сканеры/боты — ${RED}Выключен${NC}"
+            echo -e "    ${RED}○${NC} Nginx боты        — ${RED}Выключен${NC}"
         fi
         
-        # MySQL
-        local mysql_status=$(get_jail_status "mysqld-auth-shield")
         if [[ "$mysql_status" == "enabled" ]]; then
-            echo -e "    ${GREEN}●${NC} MySQL брутфорс — ${GREEN}Включен${NC}"
+            echo -e "    ${GREEN}●${NC} MySQL брутфорс    — ${GREEN}Включен${NC}"
         else
-            echo -e "    ${RED}○${NC} MySQL брутфорс — ${RED}Выключен${NC}"
+            echo -e "    ${RED}○${NC} MySQL брутфорс    — ${RED}Выключен${NC}"
         fi
         
-        # Показываем игнорируемые порты для portscan
-        local ignore_ports=$(get_config "PORTSCAN_IGNORE_PORTS" "443,8443")
         echo ""
-        echo -e "  ${WHITE}Игнор портов (VPN/HAPP):${NC} ${CYAN}$ignore_ports${NC}"
+        echo -e "    ${DIM}Игнор портов (VPN):${NC} ${CYAN}$ignore_ports${NC}"
         
-        echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} 🔍 Сканирование портов (вкл/выкл)"
-        echo -e "  ${WHITE}2)${NC} 🌐 Nginx брутфорс (вкл/выкл)"
-        echo -e "  ${WHITE}3)${NC} 🤖 Nginx сканеры/боты (вкл/выкл)"
-        echo -e "  ${WHITE}4)${NC} 🗄️  MySQL брутфорс (вкл/выкл)"
-        echo ""
-        echo -e "  ${WHITE}5)${NC} ✅ Включить всё"
-        echo -e "  ${WHITE}6)${NC} ❌ Выключить всё"
-        echo ""
-        echo -e "  ${WHITE}p)${NC} ⚙️  Настроить игнорируемые порты (для VPN/HAPP)"
-        echo -e "  ${WHITE}w)${NC} 📋 Whitelist (доверенные IP)"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        menu_divider
+        menu_item "1" "Portscan (вкл/выкл)"
+        menu_item "2" "Nginx брутфорс (вкл/выкл)"
+        menu_item "3" "Nginx боты (вкл/выкл)"
+        menu_item "4" "MySQL брутфорс (вкл/выкл)"
+        menu_divider
+        echo -e "    ${GREEN}[5]${NC} ${GREEN}Включить всё${NC}"
+        echo -e "    ${RED}[6]${NC} ${RED}Выключить всё${NC}"
+        menu_item "7" "Настроить игнор портов"
+        menu_item "0" "Назад"
         
-        case $choice in
-            1)
-                if [[ "$(get_jail_status 'portscan')" == "enabled" ]]; then
-                    toggle_jail "portscan" "disable"
-                else
-                    # При включении пересоздаём фильтр с актуальными игнор-портами
-                    create_portscan_filter
-                    toggle_jail "portscan" "enable"
-                fi
-                sleep 1
-                ;;
-            2)
-                if [[ "$(get_jail_status 'nginx-http-auth-shield')" == "enabled" ]]; then
-                    toggle_jail "nginx-http-auth-shield" "disable"
-                else
-                    toggle_jail "nginx-http-auth-shield" "enable"
-                fi
-                sleep 1
-                ;;
-            3)
-                if [[ "$(get_jail_status 'nginx-badbots-shield')" == "enabled" ]]; then
-                    toggle_jail "nginx-badbots-shield" "disable"
-                else
-                    toggle_jail "nginx-badbots-shield" "enable"
-                fi
-                sleep 1
-                ;;
-            4)
-                if [[ "$(get_jail_status 'mysqld-auth-shield')" == "enabled" ]]; then
-                    toggle_jail "mysqld-auth-shield" "disable"
-                else
-                    toggle_jail "mysqld-auth-shield" "enable"
-                fi
-                sleep 1
-                ;;
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1) toggle_jail "portscan"; press_any_key ;;
+            2) toggle_jail "nginx-http-auth-shield"; press_any_key ;;
+            3) toggle_jail "nginx-badbots-shield"; press_any_key ;;
+            4) toggle_jail "mysqld-auth-shield"; press_any_key ;;
             5)
-                create_portscan_filter  # Обновляем фильтр с игнор-портами
-                toggle_jail "portscan" "enable"
-                toggle_jail "nginx-http-auth-shield" "enable"
-                toggle_jail "nginx-badbots-shield" "enable"
-                toggle_jail "mysqld-auth-shield" "enable"
-                sleep 1
-                ;;
-            6)
-                toggle_jail "portscan" "disable"
-                toggle_jail "nginx-http-auth-shield" "disable"
-                toggle_jail "nginx-badbots-shield" "disable"
-                toggle_jail "mysqld-auth-shield" "disable"
-                sleep 1
-                ;;
-            p|P) configure_portscan_ignore_ports ;;
-            w|W) whitelist_menu ;;
-            0) return ;;
-            *) 
-                log_error "Неверный выбор"
+                enable_all_jails
                 press_any_key
                 ;;
+            6)
+                disable_all_jails
+                press_any_key
+                ;;
+            7) configure_ignore_ports; press_any_key ;;
+            0|q|'') return ;;
         esac
     done
+}
+
+# Вспомогательные функции для extended_protection_menu
+enable_all_jails() {
+    log_step "Включение всех jail'ов..."
+    create_portscan_filter 2>/dev/null
+    toggle_jail "portscan" "enable"
+    toggle_jail "nginx-http-auth-shield" "enable"
+    toggle_jail "nginx-badbots-shield" "enable"
+    toggle_jail "mysqld-auth-shield" "enable"
+    sleep 1
+    log_info "Все jail'ы включены"
+}
+
+disable_all_jails() {
+    log_step "Выключение всех jail'ов..."
+    toggle_jail "portscan" "disable"
+    toggle_jail "nginx-http-auth-shield" "disable"
+    toggle_jail "nginx-badbots-shield" "disable"
+    toggle_jail "mysqld-auth-shield" "disable"
+    sleep 1
+    log_info "Все jail'ы выключены"
+}
+
+configure_ignore_ports() {
+    print_header_mini "Настройка игнорируемых портов"
+    
+    local current=$(get_config "PORTSCAN_IGNORE_PORTS" "443,8443")
+    echo -e "    ${DIM}Эти порты не будут триггерить portscan защиту${NC}"
+    echo -e "    ${DIM}Для VPN клиентов (HAPP и др.)${NC}"
+    echo ""
+    echo -e "    ${WHITE}Текущие:${NC} ${CYAN}$current${NC}"
+    echo ""
+    
+    local ports
+    input_value "Новые порты (через запятую)" "$current" ports
+    
+    if [[ -n "$ports" ]]; then
+        save_config "PORTSCAN_IGNORE_PORTS" "$ports"
+        create_portscan_filter 2>/dev/null
+        
+        if get_jail_status "portscan" | grep -q "enabled"; then
+            fail2ban-client reload portscan 2>/dev/null
+        fi
+        
+        log_info "Игнорируемые порты обновлены: $ports"
+    fi
 }
 
 # Настройка игнорируемых портов для portscan (для VPN клиентов типа HAPP)

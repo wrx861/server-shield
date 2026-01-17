@@ -335,92 +335,119 @@ check_updates_force() {
 
 # Меню обновлений
 update_menu() {
-    print_header
-    print_section "⬆️ Обновление Server Shield"
-    
-    show_version_status
-    
+    while true; do
+        print_header_mini "Обновление"
+        
+        local local_ver=$(get_local_version)
+        local remote_ver=$(get_remote_version 2>/dev/null)
+        local status=$(check_updates 2>/dev/null)
+        
+        # Статус блок
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
+        echo -e "    ${DIM}│${NC} Текущая версия: ${CYAN}$local_ver${NC}                            ${DIM}│${NC}"
+        
+        case "$status" in
+            "latest")
+                echo -e "    ${DIM}│${NC} Статус: ${GREEN}● Последняя версия${NC}                       ${DIM}│${NC}"
+                ;;
+            available:*)
+                local new_ver="${status#available:}"
+                echo -e "    ${DIM}│${NC} Статус: ${YELLOW}● Доступно $new_ver${NC}                        ${DIM}│${NC}"
+                ;;
+            *)
+                echo -e "    ${DIM}│${NC} Статус: ${RED}○ Не удалось проверить${NC}                  ${DIM}│${NC}"
+                ;;
+        esac
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        case "$status" in
+            available:*)
+                local new_ver="${status#available:}"
+                echo -e "    ${GREEN}[1]${NC} ${GREEN}Обновить до $new_ver${NC}"
+                menu_item "2" "Проверить ещё раз"
+                menu_item "3" "Показать что нового"
+                ;;
+            "latest")
+                menu_item "1" "Проверить обновления"
+                menu_item "2" "Переустановить текущую версию"
+                ;;
+            *)
+                menu_item "1" "Повторить проверку"
+                ;;
+        esac
+        
+        menu_divider
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1)
+                if [[ "$status" == available:* ]]; then
+                    echo ""
+                    if confirm_action "Обновить до $new_ver?" "y"; then
+                        do_update
+                    fi
+                else
+                    log_step "Проверка обновлений..."
+                    local force_status=$(check_updates_force)
+                    case "$force_status" in
+                        "latest")
+                            log_info "У вас последняя версия!"
+                            ;;
+                        available:*)
+                            local nv="${force_status#available:}"
+                            log_info "Доступно обновление: $nv"
+                            if confirm_action "Обновить сейчас?" "y"; then
+                                do_update
+                            fi
+                            ;;
+                        *)
+                            log_error "Не удалось проверить обновления"
+                            ;;
+                    esac
+                fi
+                press_any_key
+                ;;
+            2)
+                if [[ "$status" == available:* ]]; then
+                    log_step "Проверка обновлений..."
+                    check_updates_force > /dev/null
+                    log_info "Проверка завершена"
+                elif [[ "$status" == "latest" ]]; then
+                    echo ""
+                    log_warn "Переустановка текущей версии..."
+                    if confirm_action "Переустановить $local_ver?" "n"; then
+                        do_update
+                    fi
+                fi
+                press_any_key
+                ;;
+            3)
+                if [[ "$status" == available:* ]]; then
+                    show_changelog
+                    press_any_key
+                fi
+                ;;
+            0|q|'') return ;;
+        esac
+    done
+}
+
+# Показать что нового
+show_changelog() {
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "    ${WHITE}Что нового в обновлении:${NC}"
     echo ""
     
-    local status=$(check_updates)
+    local changelog=$(curl -fsSL --connect-timeout 5 "$GITHUB_RAW/CHANGELOG.md" 2>/dev/null | head -50)
     
-    case "$status" in
-        "latest")
-            echo -e "  ${GREEN}✓ У вас установлена последняя версия${NC}"
-            echo ""
-            echo -e "  ${WHITE}1)${NC} Проверить обновления сейчас"
-            echo -e "  ${WHITE}2)${NC} Переустановить текущую версию"
-            ;;
-        available:*)
-            local new_ver="${status#available:}"
-            echo -e "  ${YELLOW}⬆ Доступно обновление: $new_ver${NC}"
-            echo ""
-            echo -e "  ${WHITE}1)${NC} ${GREEN}Обновить до $new_ver${NC}"
-            echo -e "  ${WHITE}2)${NC} Проверить обновления сейчас"
-            ;;
-        "error")
-            echo -e "  ${RED}Не удалось проверить обновления${NC}"
-            echo -e "  Проверьте подключение к интернету"
-            echo ""
-            echo -e "  ${WHITE}1)${NC} Повторить проверку"
-            ;;
-    esac
-    
-    echo -e "  ${WHITE}0)${NC} Назад"
-    echo ""
-    read -p "Выберите действие: " choice
-    
-    case $choice in
-        1)
-            if [[ "$status" == available:* ]]; then
-                do_update
-            else
-                log_step "Проверка обновлений..."
-                # Принудительная проверка (без кэша)
-                local force_status=$(check_updates_force)
-                case "$force_status" in
-                    "latest")
-                        log_info "У вас установлена последняя версия"
-                        ;;
-                    available:*)
-                        local new_ver="${force_status#available:}"
-                        log_info "Доступно обновление: $new_ver"
-                        if confirm "Обновить сейчас?" "y"; then
-                            do_update
-                        fi
-                        ;;
-                    "error")
-                        log_error "Не удалось проверить обновления"
-                        ;;
-                esac
-            fi
-            ;;
-        2)
-            if [[ "$status" == "latest" ]]; then
-                # Принудительная проверка
-                log_step "Проверка обновлений..."
-                local force_status=$(check_updates_force)
-                case "$force_status" in
-                    "latest")
-                        log_info "У вас установлена последняя версия"
-                        ;;
-                    available:*)
-                        local new_ver="${force_status#available:}"
-                        log_info "Доступно обновление: $new_ver"
-                        if confirm "Обновить сейчас?" "y"; then
-                            do_update
-                        fi
-                        ;;
-                    "error")
-                        log_error "Не удалось проверить обновления"
-                        ;;
-                esac
-            fi
-            ;;
-        0) return ;;
-    esac
-    
-    press_any_key
+    if [[ -n "$changelog" ]]; then
+        echo "$changelog" | while read line; do
+            echo "    $line"
+        done
+    else
+        echo -e "    ${DIM}Не удалось загрузить changelog${NC}"
+    fi
 }

@@ -236,46 +236,58 @@ setup_paste_public_key() {
 # Меню управления ключами
 keys_menu() {
     while true; do
-        print_header
-        print_section "🔑 Управление SSH-ключами"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} Создать новую пару ключей"
-        echo -e "  ${WHITE}2)${NC} Показать публичный ключ"
-        echo -e "  ${WHITE}3)${NC} Показать приватный ключ (для Termius)"
-        echo -e "  ${WHITE}4)${NC} Список авторизованных ключей"
-        echo -e "  ${WHITE}5)${NC} Добавить публичный ключ"
-        echo -e "  ${WHITE}6)${NC} Удалить ключ"
-        echo -e "  ${WHITE}7)${NC} Проверить наличие ключей"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выберите действие: " choice
+        print_header_mini "SSH Ключи"
         
-        case $choice in
-            1) generate_key ;;
-            2) show_public_key ;;
-            3) show_private_key ;;
-            4) list_authorized_keys ;;
-            5) add_public_key ;;
-            6) remove_key ;;
-            7) check_keys ;;
-            0) return ;;
-            *) log_error "Неверный выбор" ;;
+        local has_keys=false
+        [[ -f "$PRIVATE_KEY" || -f "$PUBLIC_KEY" ]] && has_keys=true
+        local auth_count=$(wc -l < "$AUTH_KEYS" 2>/dev/null | tr -d ' ' || echo 0)
+        
+        echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
+        if [[ "$has_keys" == true ]]; then
+            echo -e "    ${DIM}│${NC} Keys: ${GREEN}● Generated${NC}    Authorized: ${CYAN}$auth_count${NC}            ${DIM}│${NC}"
+        else
+            echo -e "    ${DIM}│${NC} Keys: ${YELLOW}○ Not generated${NC}   Authorized: ${CYAN}$auth_count${NC}      ${DIM}│${NC}"
+        fi
+        echo -e "    ${DIM}└─────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        menu_item "1" "Создать новую пару ключей"
+        menu_item "2" "Показать публичный ключ"
+        menu_item "3" "Показать приватный ключ (для Termius)"
+        menu_divider
+        menu_item "4" "Список авторизованных ключей"
+        menu_item "5" "Добавить публичный ключ"
+        menu_item "6" "Удалить ключ"
+        menu_item "7" "Проверить наличие ключей"
+        menu_item "0" "Назад"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1) generate_key; press_any_key ;;
+            2) show_public_key; press_any_key ;;
+            3) show_private_key; press_any_key ;;
+            4) list_authorized_keys; press_any_key ;;
+            5) add_public_key; press_any_key ;;
+            6) remove_key; press_any_key ;;
+            7) check_keys; press_any_key ;;
+            0|q|'') return ;;
         esac
-        
-        press_any_key
     done
 }
 
 # Генерация новой пары ключей
 generate_key() {
-    print_section "Генерация SSH-ключа"
+    echo ""
+    echo -e "    ${WHITE}Генерация SSH-ключа${NC}"
+    echo ""
     
     init_ssh_dir
     
     # Проверяем существование ключа
     if [[ -f "$PRIVATE_KEY" ]]; then
         log_warn "Ключ уже существует: $PRIVATE_KEY"
-        if ! confirm "Перезаписать существующий ключ?"; then
+        if ! confirm_action "Перезаписать существующий ключ?" "n"; then
             return
         fi
         rm -f "$PRIVATE_KEY" "$PUBLIC_KEY"
@@ -292,15 +304,15 @@ generate_key() {
         cat "$PUBLIC_KEY" >> "$AUTH_KEYS"
         
         echo ""
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
-        echo -e "${YELLOW}  ВАЖНО! Сохраните приватный ключ в надёжное место!${NC}"
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
+        echo -e "    ${YELLOW}════════════════════════════════════════════════════${NC}"
+        echo -e "    ${YELLOW}  ВАЖНО! Сохраните приватный ключ в надёжное место!${NC}"
+        echo -e "    ${YELLOW}════════════════════════════════════════════════════${NC}"
         echo ""
-        echo -e "${WHITE}Публичный ключ (добавлен в authorized_keys):${NC}"
-        echo -e "${CYAN}$(cat "$PUBLIC_KEY")${NC}"
+        echo -e "    ${WHITE}Публичный ключ:${NC}"
+        echo -e "    ${CYAN}$(cat "$PUBLIC_KEY")${NC}"
         echo ""
-        echo -e "${WHITE}Приватный ключ (скопируйте в Termius):${NC}"
-        echo -e "${GREEN}$(cat "$PRIVATE_KEY")${NC}"
+        echo -e "    ${WHITE}Приватный ключ (для Termius):${NC}"
+        echo -e "    ${GREEN}$(cat "$PRIVATE_KEY")${NC}"
     else
         log_error "Ошибка генерации ключа"
     fi
@@ -308,15 +320,13 @@ generate_key() {
 
 # Показать публичный ключ
 show_public_key() {
-    print_section "Публичный ключ"
+    echo ""
     
     if [[ -f "$PUBLIC_KEY" ]]; then
+        echo -e "    ${WHITE}Файл:${NC} $PUBLIC_KEY"
         echo ""
-        echo -e "${WHITE}Файл:${NC} $PUBLIC_KEY"
-        echo ""
-        echo -e "${CYAN}$(cat "$PUBLIC_KEY")${NC}"
+        echo -e "    ${CYAN}$(cat "$PUBLIC_KEY")${NC}"
     else
-        echo ""
         log_info "Файл публичного ключа не найден на сервере"
         echo ""
         echo -e "${WHITE}Это нормально, если вы:${NC}"
