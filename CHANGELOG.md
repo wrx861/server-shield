@@ -2,6 +2,13 @@
 
 All notable changes to Server Shield will be documented in this file.
 
+## [3.4.3] - 2025-01 - Menu Fix
+
+### 🎨 Исправления
+- Исправлено выравнивание двухколоночного меню (использован echo вместо printf)
+
+---
+
 ## [3.4.2] - 2025-01 - UI Fixes
 
 ### 🎨 Исправления интерфейса
