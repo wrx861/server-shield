@@ -2,7 +2,7 @@
 
 All notable changes to Server Shield will be documented in this file.
 
-## [3.4.1] - 2025-01 - UI Fixes
+## [3.4.2] - 2025-01 - UI Fixes
 
 ### 🎨 Исправления интерфейса
 - Исправлено выравнивание двухколоночного меню
