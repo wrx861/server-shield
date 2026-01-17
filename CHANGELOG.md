@@ -2,6 +2,14 @@
 
 All notable changes to Server Shield will be documented in this file.
 
+## [3.4.5] - 2025-01 - Auto Nginx Install
+
+### 🔧 Улучшения
+- Автоматическая установка Nginx при включении L7 Shield
+- Поддержка apt/yum/dnf пакетных менеджеров
+
+---
+
 ## [3.4.4] - 2025-01 - nftables Fix
 
 ### 🔧 Исправления
