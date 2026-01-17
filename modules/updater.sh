@@ -339,8 +339,13 @@ update_menu() {
         print_header_mini "Обновление"
         
         local local_ver=$(get_local_version)
-        local remote_ver=$(get_remote_version 2>/dev/null)
-        local status=$(check_updates 2>/dev/null)
+        # Принудительная проверка при входе в меню
+        local status=$(check_updates_force 2>/dev/null)
+        local remote_ver=""
+        
+        if [[ "$status" == available:* ]]; then
+            remote_ver="${status#available:}"
+        fi
         
         # Статус блок
         echo -e "    ${DIM}┌─────────────────────────────────────────────────────┐${NC}"
