@@ -75,6 +75,13 @@ L7_LAST_SYNC="$L7_CONFIG_DIR/last_sync.txt"
 # Проверить и установить nginx если нужно
 ensure_nginx_installed() {
     if command -v nginx &>/dev/null; then
+        # Проверяем есть ли модуль headers-more (для more_clear_headers)
+        if ! nginx -V 2>&1 | grep -q "headers-more"; then
+            log_step "Установка nginx-extras (модуль headers-more)..."
+            if command -v apt-get &>/dev/null; then
+                apt-get install -y nginx-extras >/dev/null 2>&1 || true
+            fi
+        fi
         return 0
     fi
     
@@ -82,7 +89,8 @@ ensure_nginx_installed() {
     
     if command -v apt-get &>/dev/null; then
         apt-get update -qq
-        apt-get install -y nginx >/dev/null 2>&1
+        # Ставим nginx-extras который включает headers-more модуль
+        apt-get install -y nginx-extras >/dev/null 2>&1 || apt-get install -y nginx >/dev/null 2>&1
     elif command -v yum &>/dev/null; then
         yum install -y nginx >/dev/null 2>&1
     elif command -v dnf &>/dev/null; then
@@ -829,13 +837,16 @@ apply_nft_rules() {
     # Генерируем конфиг
     generate_nft_config
     
-    # Применяем
-    if nft -f "$NFT_CONF" 2>&1; then
+    # Применяем (скрываем вывод, показываем только ошибки)
+    local output
+    output=$(nft -f "$NFT_CONF" 2>&1)
+    
+    if [[ $? -eq 0 ]]; then
         log_info "nftables правила применены"
         return 0
     else
-        log_error "Ошибка применения nftables"
-        nft -c -f "$NFT_CONF"
+        log_error "Ошибка применения nftables:"
+        echo "$output" | head -5
         return 1
     fi
 }
@@ -1348,35 +1359,64 @@ github_full_sync() {
     
     if [[ $remote_count -gt 0 ]]; then
         log_info "Получено $remote_count IP из GitHub"
+        log_step "Применение IP (это может занять несколько минут)..."
         
-        # Добавляем в локальный blacklist
-        while IFS= read -r ip; do
-            [[ -z "$ip" ]] && continue
-            
-            # Проверяем не в whitelist
-            if grep -q "^$ip$" "$L7_WHITELIST" 2>/dev/null; then
-                continue
-            fi
-            
-            # Добавляем в файл если нет
-            if ! grep -q "^$ip$" "$L7_BLACKLIST" 2>/dev/null; then
-                echo "$ip" >> "$L7_BLACKLIST"
-                ((added++))
-            fi
-            
-            # Добавляем в ipset/nftables
-            if [[ "$backend" == "nftables" ]]; then
-                nft_add_to_set "blacklist" "$ip" 2>/dev/null
-            else
-                ipset add "$IPSET_BLACKLIST" "$ip" 2>/dev/null
-            fi
-            
-            # Помечаем как синхронизированный
-            echo "$ip" >> "$L7_SYNCED_IPS"
-        done <<< "$remote_ips"
+        # Сохраняем во временный файл для быстрой обработки
+        local temp_remote="/tmp/github_remote_$$.txt"
+        echo "$remote_ips" > "$temp_remote"
         
-        # Удаляем дубликаты в synced_ips
+        # Фильтруем whitelist
+        local filtered_ips
+        if [[ -f "$L7_WHITELIST" ]]; then
+            filtered_ips=$(grep -vFxf "$L7_WHITELIST" "$temp_remote" 2>/dev/null || cat "$temp_remote")
+        else
+            filtered_ips=$(cat "$temp_remote")
+        fi
+        
+        # Находим новые IP (которых нет в blacklist)
+        local new_ips
+        if [[ -f "$L7_BLACKLIST" ]]; then
+            new_ips=$(echo "$filtered_ips" | grep -vFxf "$L7_BLACKLIST" 2>/dev/null || echo "$filtered_ips")
+        else
+            new_ips="$filtered_ips"
+        fi
+        
+        local new_count=$(echo "$new_ips" | grep -c "^[0-9]" || echo 0)
+        
+        if [[ $new_count -gt 0 ]]; then
+            log_step "Добавление $new_count новых IP..."
+            
+            # Добавляем в blacklist файл
+            echo "$new_ips" >> "$L7_BLACKLIST"
+            sort -u "$L7_BLACKLIST" -o "$L7_BLACKLIST" 2>/dev/null
+            
+            # Добавляем в firewall (пакетно)
+            local progress=0
+            echo "$new_ips" | while IFS= read -r ip; do
+                [[ -z "$ip" ]] && continue
+                
+                if [[ "$backend" == "nftables" ]]; then
+                    nft add element inet l7shield blacklist { "$ip" } 2>/dev/null
+                else
+                    ipset add "$IPSET_BLACKLIST" "$ip" 2>/dev/null
+                fi
+                
+                ((progress++))
+                # Показываем прогресс каждые 5000 IP
+                if (( progress % 5000 == 0 )); then
+                    echo -ne "    → Обработано: $progress / $new_count IP\r"
+                fi
+            done
+            echo ""
+            
+            added=$new_count
+        fi
+        
+        # Обновляем synced_ips
+        echo "$filtered_ips" >> "$L7_SYNCED_IPS"
         sort -u "$L7_SYNCED_IPS" -o "$L7_SYNCED_IPS" 2>/dev/null
+        
+        rm -f "$temp_remote"
     fi
     
     # 2. Отправляем наши новые IP в GitHub
@@ -1385,6 +1425,7 @@ github_full_sync() {
         local queue_count=$(echo "$queue_ips" | grep -c "^[0-9]" || echo 0)
         
         if [[ $queue_count -gt 0 ]]; then
+            log_step "Отправка $queue_count IP в GitHub..."
             if github_upload_ips "$queue_ips"; then
                 # Перемещаем из очереди в synced
                 cat "$L7_SYNC_QUEUE" >> "$L7_SYNCED_IPS"
@@ -1398,7 +1439,7 @@ github_full_sync() {
     # 3. Сохраняем время последней синхронизации
     date '+%Y-%m-%d %H:%M:%S' > "$L7_LAST_SYNC"
     
-    log_info "Sync: +$added локально, +$uploaded в GitHub"
+    log_info "Sync завершён: +$added локально, +$uploaded в GitHub"
 }
 
 # Скрипт для cron синхронизации
@@ -1863,7 +1904,7 @@ limit_conn_log_level warn;
 
 # Глобальные настройки безопасности
 server_tokens off;
-more_clear_headers Server;
+# more_clear_headers Server;  # Требует nginx-extras
 
 # Защита от clickjacking (в http блоке)
 add_header X-Frame-Options "SAMEORIGIN" always;
@@ -3261,8 +3302,18 @@ limits_menu() {
                 save_l7_param "AUTOBAN_TIME" "$val"
                 ;;
             0) 
-                # Перезагружаем если активен
-                [[ "$L7_ENABLED" == "true" ]] && reload_l7
+                # Спрашиваем нужно ли применить изменения
+                if [[ "$L7_ENABLED" == "true" ]]; then
+                    echo ""
+                    echo -ne "    ${YELLOW}Применить изменения? [y/N]:${NC} "
+                    read -r apply
+                    if [[ "${apply,,}" == "y" ]]; then
+                        reload_l7
+                    else
+                        echo -e "    ${DIM}Изменения сохранены, перезагрузите вручную${NC}"
+                        sleep 1
+                    fi
+                fi
                 return 
                 ;;
         esac
