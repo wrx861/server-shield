@@ -2,6 +2,39 @@
 
 All notable changes to Server Shield will be documented in this file.
 
+## [3.4.0] - 2025-01 - GitHub-Synced Blocklist
+
+### 🌐 Централизованная база атакующих IP
+- **GitHub-powered blocklist** — общая база IP атакующих для всех пользователей
+- Автоматическая синхронизация с приватным репозиторием `wrx861/blockip`
+- Двунаправленный sync: скачивание общей базы + отправка локальных банов
+- Cron-job каждые 5 минут для автоматической синхронизации
+
+### 🔄 Новый Blacklist Workflow
+- Удалена старая система URL-блоклистов
+- Все забаненные IP автоматически попадают в общую базу
+- При включении L7 Shield сразу загружается общая база
+- Очередь на отправку IP с дедупликацией
+
+### 📋 Обновлённое меню Blacklist
+- Новый дизайн меню с GitHub статистикой
+- Показ очереди на отправку
+- Ручная синхронизация одним кликом
+- Показ времени последней синхронизации
+
+### 🔧 API & CLI
+- `github_full_sync` — полная синхронизация
+- `check_github_connection` — проверка подключения
+- `queue_ip_for_sync` — добавление IP в очередь
+- CLI: `shield l7 sync` — ручная синхронизация
+- Улучшенная обработка ошибок GitHub API
+
+### ⚠️ Breaking Changes
+- Удалены функции `add_blacklist_url`, `remove_blacklist_url`, `update_blacklists_from_urls`
+- Файл `blacklist_urls.txt` больше не используется
+
+---
+
 ## [3.3.0] - 2025-01 - nftables Support
 
 ### 🔥 nftables Backend
