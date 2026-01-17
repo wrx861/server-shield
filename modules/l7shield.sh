@@ -2847,17 +2847,16 @@ blacklist_menu() {
         [[ -f "$L7_SYNCED_IPS" ]] && synced_count=$(grep -c "^[0-9]" "$L7_SYNCED_IPS" 2>/dev/null || echo 0)
         
         # Статус блок
-        echo -e "    ${DIM}┌──────────────────────────────────────────────────────┐${NC}"
-        echo -e "    ${DIM}│${NC} ${RED}Заблокировано:${NC} ${WHITE}$blacklist_count${NC} IP                             ${DIM}│${NC}"
-        echo -e "    ${DIM}│${NC} ${YELLOW}В очереди:${NC} ${WHITE}$queue_count${NC} │ ${GREEN}Синхронизировано:${NC} ${WHITE}$synced_count${NC}        ${DIM}│${NC}"
-        echo -e "    ${DIM}│${NC} ${CYAN}Repo:${NC} github.com/${GITHUB_REPO}                     ${DIM}│${NC}"
-        echo -e "    ${DIM}└──────────────────────────────────────────────────────┘${NC}"
         echo ""
+        show_info "Заблокировано" "${blacklist_count} IP"
+        show_info "В очереди" "${queue_count} IP"
+        show_info "Синхронизировано" "${synced_count} IP"
+        show_info "Репозиторий" "github.com/${GITHUB_REPO}"
         
         # Последняя синхронизация
         if [[ -f "$L7_LAST_SYNC" ]]; then
             local last_sync=$(cat "$L7_LAST_SYNC")
-            show_info "Последняя синхронизация" "$last_sync"
+            show_info "Последний sync" "$last_sync"
         fi
         
         echo ""
@@ -2868,7 +2867,7 @@ blacklist_menu() {
         menu_item "2" "Удалить IP из blacklist"
         menu_item "3" "Показать заблокированные IP"
         menu_divider
-        menu_item "4" "${GREEN}Синхронизировать с GitHub${NC}"
+        menu_item "4" "Синхронизировать с GitHub"
         menu_item "5" "Показать очередь на отправку"
         menu_divider
         menu_item "6" "Очистить локальный blacklist"
@@ -2876,8 +2875,7 @@ blacklist_menu() {
         menu_item "0" "Назад"
         
         echo ""
-        echo -e "    ${DIM}Все забаненные IP автоматически отправляются${NC}"
-        echo -e "    ${DIM}в общую базу GitHub каждые 12 часов${NC}"
+        echo -e "    ${DIM}Авто-sync каждые 12 часов${NC}"
         
         local choice=$(read_choice)
         
