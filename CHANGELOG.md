@@ -2,6 +2,15 @@
 
 All notable changes to Server Shield will be documented in this file.
 
+## [3.4.4] - 2025-01 - nftables Fix
+
+### 🔧 Исправления
+- Исправлен синтаксис nftables для совместимости со старыми версиями
+- Удалены неподдерживаемые флаги timeout/dynamic из sets
+- Упрощена конфигурация nftables
+
+---
+
 ## [3.4.3] - 2025-01 - Menu Fix
 
 ### 🎨 Исправления
