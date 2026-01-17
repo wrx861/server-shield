@@ -49,11 +49,20 @@ DEFAULT_VPN_PORTS="443 8443 2053 2083 2087 2096"
 # ============================================
 
 GITHUB_SYNC_ENABLED="true"
-GITHUB_PAT="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"
 GITHUB_REPO="wrx861/blockip"
 GITHUB_FILE="iplist.txt"
+GITHUB_PAT_FILE="/opt/server-shield/config/github_pat.conf"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}"
-GITHUB_RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/${GITHUB_FILE}"
+GITHUB_RAW_URL="https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}"
+
+# Загрузить PAT из файла
+load_github_pat() {
+    if [[ -f "$GITHUB_PAT_FILE" ]]; then
+        GITHUB_PAT=$(cat "$GITHUB_PAT_FILE" | tr -d '\n\r ')
+    else
+        GITHUB_PAT=""
+    fi
+}
 
 L7_SYNC_QUEUE="$L7_CONFIG_DIR/sync_queue.txt"
 L7_SYNCED_IPS="$L7_CONFIG_DIR/synced_ips.txt"
@@ -1139,9 +1148,14 @@ init_github_sync() {
 
 # Проверить доступность GitHub API
 check_github_connection() {
+    # Загружаем PAT из файла
+    load_github_pat
+    
     # Убедимся что PAT загружен
-    if [[ -z "$GITHUB_PAT" || "$GITHUB_PAT" == "YOUR_GITHUB_PAT" ]]; then
+    if [[ -z "$GITHUB_PAT" ]]; then
         log_error "GitHub PAT не настроен"
+        echo -e "    ${DIM}Создайте файл: $GITHUB_PAT_FILE${NC}"
+        echo -e "    ${DIM}И добавьте в него ваш GitHub PAT токен${NC}"
         return 1
     fi
     
@@ -1166,12 +1180,14 @@ check_github_connection() {
 
 # Скачать IP из GitHub (с обработкой ошибок)
 github_download_ips() {
+    load_github_pat
+    
     local temp_file="/tmp/github_ips_$$.txt"
     local retry_count=0
     local max_retries=3
     
     while [[ $retry_count -lt $max_retries ]]; do
-        # Используем raw URL для быстрой загрузки
+        # Используем API URL (работает для приватных репо)
         local http_code=$(curl -sS -w "%{http_code}" \
             --connect-timeout 10 --max-time 60 \
             -H "Authorization: token $GITHUB_PAT" \
@@ -1458,6 +1474,16 @@ github_sync_menu() {
     while true; do
         print_header_mini "GitHub IP Sync"
         
+        # Загружаем PAT
+        load_github_pat
+        
+        # Статус PAT
+        if [[ -n "$GITHUB_PAT" ]]; then
+            echo -e "    ${GREEN}●${NC} PAT токен настроен"
+        else
+            echo -e "    ${RED}●${NC} PAT токен не настроен"
+        fi
+        
         show_github_sync_status
         
         echo ""
@@ -1468,14 +1494,15 @@ github_sync_menu() {
         menu_item "2" "Показать очередь на отправку"
         menu_item "3" "Показать последние синхронизированные"
         menu_divider
+        menu_item "4" "Настроить PAT токен"
         
         if grep -q "l7-github-sync" "$L7_CRON" 2>/dev/null; then
-            menu_item "4" "Выключить auto-sync"
+            menu_item "5" "Выключить auto-sync"
         else
-            menu_item "4" "Включить auto-sync"
+            menu_item "5" "Включить auto-sync"
         fi
         
-        menu_item "5" "Просмотр лога синхронизации"
+        menu_item "6" "Просмотр лога синхронизации"
         menu_divider
         menu_item "0" "Назад"
         
@@ -1516,6 +1543,32 @@ github_sync_menu() {
                 press_any_key
                 ;;
             4)
+                echo ""
+                echo -e "    ${WHITE}Настройка GitHub PAT токена${NC}"
+                echo ""
+                echo -e "    ${DIM}1. Создайте токен: https://github.com/settings/tokens?type=beta${NC}"
+                echo -e "    ${DIM}2. Repository access → Only select: wrx861/blockip${NC}"
+                echo -e "    ${DIM}3. Permissions → Contents → Read and write${NC}"
+                echo ""
+                echo -ne "    ${WHITE}Вставьте PAT токен:${NC} "
+                read -r new_pat
+                if [[ "$new_pat" == github_pat_* ]]; then
+                    mkdir -p "$(dirname "$GITHUB_PAT_FILE")"
+                    echo "$new_pat" > "$GITHUB_PAT_FILE"
+                    chmod 600 "$GITHUB_PAT_FILE"
+                    log_info "PAT токен сохранён"
+                    
+                    # Проверяем
+                    load_github_pat
+                    if check_github_connection; then
+                        log_info "Токен работает!"
+                    fi
+                else
+                    log_error "Неверный формат токена (должен начинаться с github_pat_)"
+                fi
+                press_any_key
+                ;;
+            5)
                 if grep -q "l7-github-sync" "$L7_CRON" 2>/dev/null; then
                     sed -i '/l7-github-sync/d' "$L7_CRON"
                     log_info "Auto-sync выключен"
@@ -1524,7 +1577,7 @@ github_sync_menu() {
                 fi
                 press_any_key
                 ;;
-            5)
+            6)
                 echo ""
                 if [[ -f "/opt/server-shield/logs/github_sync.log" ]]; then
                     tail -30 "/opt/server-shield/logs/github_sync.log"
