@@ -274,6 +274,8 @@ press_any_key() {
     echo -ne "    ${DIM}Нажмите любую клавишу...${NC}"
     read -n 1 -s -r
     echo ""
+    # Очищаем буфер ввода
+    read -t 0.1 -n 10000 discard 2>/dev/null || true
 }
 
 # Функция проверки IP адреса
@@ -320,6 +322,8 @@ get_server_name() {
 
 # Чтение ввода с валидацией
 read_choice() {
+    # Очищаем буфер ввода перед чтением
+    read -t 0.1 -n 10000 discard 2>/dev/null || true
     echo "" >&2
     echo -ne "    ${WHITE}▸${NC} " >&2
     read -r REPLY
