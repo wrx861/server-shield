@@ -2,6 +2,19 @@
 
 All notable changes to Server Shield will be documented in this file.
 
+## [3.4.6] - 2025-01 - Secure PAT Storage
+
+### 🔐 Безопасность
+- PAT токен теперь хранится в отдельном файле `/opt/server-shield/config/github_pat.conf`
+- Токен не коммитится в репозиторий (GitHub не отзовёт)
+- Добавлено меню настройки PAT токена (пункт 4 в GitHub Sync)
+- Права файла 600 (только root)
+
+### 🔧 Исправления
+- Исправлена работа с приватными репозиториями (использование API URL)
+
+---
+
 ## [3.4.5] - 2025-01 - Auto Nginx Install
 
 ### 🔧 Улучшения
