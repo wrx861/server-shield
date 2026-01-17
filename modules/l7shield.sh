@@ -45,6 +45,21 @@ IPSET_AUTOBAN="l7_autoban"
 DEFAULT_VPN_PORTS="443 8443 2053 2083 2087 2096"
 
 # ============================================
+# GITHUB SYNC КОНФИГУРАЦИЯ
+# ============================================
+
+GITHUB_SYNC_ENABLED="true"
+GITHUB_PAT="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"
+GITHUB_REPO="wrx861/blockip"
+GITHUB_FILE="iplist.txt"
+GITHUB_API_URL="https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/${GITHUB_FILE}"
+
+L7_SYNC_QUEUE="$L7_CONFIG_DIR/sync_queue.txt"
+L7_SYNCED_IPS="$L7_CONFIG_DIR/synced_ips.txt"
+L7_LAST_SYNC="$L7_CONFIG_DIR/last_sync.txt"
+
+# ============================================
 # ИНИЦИАЛИЗАЦИЯ
 # ============================================
 
@@ -243,92 +258,83 @@ IP: $ip
 }
 
 # ============================================
-# BLACKLIST URLs
+# BLACKLIST MANAGEMENT (GitHub-powered)
 # ============================================
 
-# Добавить URL для blacklist
-add_blacklist_url() {
-    local url="$1"
+# Добавить IP в blacklist и отправить в GitHub
+add_ip_to_global_blacklist() {
+    local ip="$1"
+    local reason="${2:-manual}"
+    local backend=$(detect_firewall)
     
-    if [[ -z "$url" ]]; then
+    if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        log_error "Неверный IP: $ip"
         return 1
     fi
     
-    if ! grep -q "^$url$" "$L7_BLACKLIST_URLS" 2>/dev/null; then
-        echo "$url" >> "$L7_BLACKLIST_URLS"
-        log_info "URL добавлен: $url"
-    else
-        log_warn "URL уже существует"
-    fi
-}
-
-# Удалить URL
-remove_blacklist_url() {
-    local url="$1"
-    sed -i "\|^$url$|d" "$L7_BLACKLIST_URLS"
-    log_info "URL удалён"
-}
-
-# Скачать и применить blacklist с URL
-update_blacklists_from_urls() {
-    local urls_file="$L7_BLACKLIST_URLS"
-    local temp_file="/tmp/l7_blacklist_download.txt"
-    local count=0
-    local total=0
-    
-    if [[ ! -f "$urls_file" ]]; then
+    # Проверяем whitelist
+    if grep -q "^$ip$" "$L7_WHITELIST" 2>/dev/null; then
+        log_warn "IP $ip в whitelist - не блокируем"
         return 0
     fi
     
-    log_step "Обновление blacklist из URL..."
-    
-    > "$temp_file"
-    
-    while IFS= read -r url; do
-        # Пропускаем комментарии и пустые строки
-        [[ "$url" =~ ^# ]] && continue
-        [[ -z "$url" ]] && continue
-        
-        echo -ne "  Скачивание: ${url:0:50}... "
-        
-        local downloaded=$(curl -fsSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
-            grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | \
-            sort -u)
-        
-        if [[ -n "$downloaded" ]]; then
-            local url_count=$(echo "$downloaded" | wc -l)
-            echo "$downloaded" >> "$temp_file"
-            echo -e "${GREEN}$url_count IP${NC}"
-            ((total += url_count))
-        else
-            echo -e "${RED}ошибка${NC}"
-        fi
-    done < "$urls_file"
-    
-    if [[ -s "$temp_file" ]]; then
-        # Уникальные IP
-        local unique_ips=$(sort -u "$temp_file")
-        local unique_count=$(echo "$unique_ips" | wc -l)
-        
-        log_step "Применение $unique_count уникальных IP..."
-        
-        # Добавляем в ipset
-        echo "$unique_ips" | while read -r ip; do
-            # Валидация IP
-            if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                ipset add "$IPSET_BLACKLIST" "$ip" 2>/dev/null && ((count++))
-            fi
-        done
-        
-        log_info "Добавлено $count IP из внешних списков"
+    # Добавляем в локальный файл
+    if ! grep -q "^$ip$" "$L7_BLACKLIST" 2>/dev/null; then
+        echo "$ip" >> "$L7_BLACKLIST"
     fi
     
-    rm -f "$temp_file"
+    # Добавляем в ipset/nftables
+    if [[ "$backend" == "nftables" ]]; then
+        nft_add_to_set "blacklist" "$ip" 2>/dev/null
+    else
+        ipset add "$IPSET_BLACKLIST" "$ip" 2>/dev/null
+    fi
     
-    # Сохраняем время обновления
-    date +%s > "$L7_CONFIG_DIR/last_blacklist_update"
+    # Добавляем в очередь на синхронизацию
+    queue_ip_for_sync "$ip"
     
-    echo "$(date '+%Y-%m-%d %H:%M:%S') | BLACKLIST_UPDATE | Added $count IPs from URLs" >> "$L7_LOG"
+    # Логируем
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] BLACKLIST ADD: $ip | Reason: $reason" >> "$L7_BAN_LOG"
+    log_info "IP $ip добавлен в blacklist ($reason)"
+}
+
+# Удалить IP из blacklist
+remove_ip_from_blacklist() {
+    local ip="$1"
+    local backend=$(detect_firewall)
+    
+    # Удаляем из файла
+    sed -i "/^$ip$/d" "$L7_BLACKLIST" 2>/dev/null
+    sed -i "/^$ip$/d" "$L7_SYNCED_IPS" 2>/dev/null
+    sed -i "/^$ip$/d" "$L7_SYNC_QUEUE" 2>/dev/null
+    
+    # Удаляем из ipset/nftables
+    if [[ "$backend" == "nftables" ]]; then
+        nft_del_from_set "blacklist" "$ip" 2>/dev/null
+    else
+        ipset del "$IPSET_BLACKLIST" "$ip" 2>/dev/null
+    fi
+    
+    log_info "IP $ip удалён из blacklist"
+    
+    # Примечание: IP остаётся в GitHub (удаление из репозитория не реализовано)
+    log_warn "IP останется в общей базе GitHub"
+}
+
+# Очистить локальный blacklist (GitHub не трогаем)
+clear_local_blacklist() {
+    local backend=$(detect_firewall)
+    
+    if [[ "$backend" == "nftables" ]]; then
+        nft flush set inet "$NFT_TABLE" blacklist 2>/dev/null
+    else
+        ipset flush "$IPSET_BLACKLIST" 2>/dev/null
+    fi
+    
+    echo "# IP blacklist (synced with GitHub)" > "$L7_BLACKLIST"
+    > "$L7_SYNC_QUEUE"
+    
+    log_info "Локальный blacklist очищен"
 }
 
 # ============================================
@@ -886,6 +892,9 @@ autoban_ip_universal() {
         ipset add "$IPSET_AUTOBAN" "$ip" timeout "$timeout" 2>/dev/null
     fi
     
+    # Добавляем в очередь на синхронизацию с GitHub
+    queue_ip_for_sync "$ip"
+    
     # Логируем
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] BAN: $ip | Reason: $reason | Time: ${timeout}s | Backend: $backend" >> "$L7_BAN_LOG"
 }
@@ -1090,6 +1099,413 @@ firewall_backend_menu() {
                     apply_nft_rules
                 else
                     apply_l7_iptables
+                fi
+                press_any_key
+                ;;
+            0|q) return ;;
+        esac
+    done
+}
+
+# ============================================
+# GITHUB SYNC - СИНХРОНИЗАЦИЯ BLACKLIST
+# ============================================
+
+# Инициализация файлов синхронизации
+init_github_sync() {
+    mkdir -p "$L7_CONFIG_DIR"
+    touch "$L7_SYNC_QUEUE" 2>/dev/null
+    touch "$L7_SYNCED_IPS" 2>/dev/null
+    touch "$L7_LAST_SYNC" 2>/dev/null
+}
+
+# Проверить доступность GitHub API
+check_github_connection() {
+    local response=$(curl -sS --connect-timeout 5 --max-time 10 \
+        -H "Authorization: token $GITHUB_PAT" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/user" 2>&1)
+    
+    if echo "$response" | grep -q '"login"'; then
+        return 0
+    elif echo "$response" | grep -q "Bad credentials"; then
+        log_error "Неверный GitHub PAT токен"
+        return 1
+    elif echo "$response" | grep -q "rate limit"; then
+        log_warn "GitHub API rate limit exceeded"
+        return 2
+    else
+        log_error "Не удалось подключиться к GitHub"
+        return 3
+    fi
+}
+
+# Скачать IP из GitHub (с обработкой ошибок)
+github_download_ips() {
+    local temp_file="/tmp/github_ips_$$.txt"
+    local retry_count=0
+    local max_retries=3
+    
+    while [[ $retry_count -lt $max_retries ]]; do
+        # Используем raw URL для быстрой загрузки
+        local http_code=$(curl -sS -w "%{http_code}" \
+            --connect-timeout 10 --max-time 60 \
+            -H "Authorization: token $GITHUB_PAT" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            "$GITHUB_RAW_URL" -o "$temp_file" 2>/dev/null)
+        
+        case "$http_code" in
+            200)
+                # Успех - быстрый парсинг с cut и grep
+                # Поддержка форматов: IP, IP:port, IP/CIDR
+                cut -d':' -f1 "$temp_file" 2>/dev/null | \
+                    cut -d'/' -f1 | \
+                    grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
+                    sort -u
+                rm -f "$temp_file"
+                return 0
+                ;;
+            404)
+                # Файл не существует - это OK для первого запуска
+                rm -f "$temp_file"
+                return 0
+                ;;
+            401|403)
+                log_error "Ошибка авторизации GitHub (код $http_code)"
+                rm -f "$temp_file"
+                return 1
+                ;;
+            *)
+                ((retry_count++))
+                if [[ $retry_count -lt $max_retries ]]; then
+                    sleep 2
+                fi
+                ;;
+        esac
+    done
+    
+    rm -f "$temp_file"
+    log_error "Не удалось скачать IP из GitHub после $max_retries попыток"
+    return 1
+}
+
+# Получить SHA файла для обновления
+github_get_sha() {
+    local response=$(curl -sS --connect-timeout 10 --max-time 15 \
+        -H "Authorization: token $GITHUB_PAT" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "$GITHUB_API_URL" 2>/dev/null)
+    
+    if echo "$response" | grep -q '"sha"'; then
+        echo "$response" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
+    fi
+}
+
+# Отправить IP в GitHub (с обработкой ошибок)
+github_upload_ips() {
+    local new_ips="$1"
+    
+    if [[ -z "$new_ips" ]]; then
+        return 0
+    fi
+    
+    log_step "Отправка IP в GitHub..."
+    
+    # Получаем текущие IP из GitHub
+    local current_ips=$(github_download_ips 2>/dev/null | sort -u)
+    
+    # Объединяем с новыми (без дубликатов)
+    local all_ips=$(echo -e "${current_ips}\n${new_ips}" | grep -v "^$" | sort -u)
+    
+    # Подсчитываем сколько реально новых
+    local total_count=$(echo "$all_ips" | grep -c "^[0-9]" 2>/dev/null || echo 0)
+    local new_count=$(echo "$new_ips" | grep -c "^[0-9]" 2>/dev/null || echo 0)
+    
+    # Получаем SHA для обновления
+    local sha=$(github_get_sha)
+    
+    # Кодируем в base64
+    local content_base64=$(echo "$all_ips" | base64 -w 0)
+    
+    # Формируем JSON (используем jq если есть, иначе вручную)
+    local hostname_short=$(hostname -s 2>/dev/null || hostname)
+    local json_data
+    
+    if [[ -n "$sha" ]]; then
+        json_data="{\"message\":\"Auto-sync: +${new_count} IPs from ${hostname_short}\",\"content\":\"${content_base64}\",\"sha\":\"${sha}\"}"
+    else
+        json_data="{\"message\":\"Initial sync from ${hostname_short}\",\"content\":\"${content_base64}\"}"
+    fi
+    
+    # Отправляем
+    local response=$(curl -sS --connect-timeout 15 --max-time 30 -X PUT \
+        -H "Authorization: token $GITHUB_PAT" \
+        -H "Accept: application/vnd.github.v3+json" \
+        -H "Content-Type: application/json" \
+        -d "$json_data" \
+        "$GITHUB_API_URL" 2>&1)
+    
+    if echo "$response" | grep -q '"sha"'; then
+        log_info "Отправлено $new_count IP в GitHub (всего: $total_count)"
+        return 0
+    elif echo "$response" | grep -q "409"; then
+        log_warn "Конфликт версий - повторите синхронизацию"
+        return 2
+    elif echo "$response" | grep -q "Bad credentials\|401"; then
+        log_error "Ошибка авторизации GitHub"
+        return 1
+    else
+        log_error "Ошибка отправки в GitHub"
+        echo "$response" | grep -o '"message":"[^"]*"' | head -1 >&2
+        return 1
+    fi
+}
+
+# Добавить IP в очередь на синхронизацию
+queue_ip_for_sync() {
+    local ip="$1"
+    
+    if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 1
+    fi
+    
+    # Проверяем не в whitelist ли
+    if grep -q "^$ip$" "$L7_WHITELIST" 2>/dev/null; then
+        return 0
+    fi
+    
+    # Проверяем не синхронизирован ли уже
+    if grep -q "^$ip$" "$L7_SYNCED_IPS" 2>/dev/null; then
+        return 0
+    fi
+    
+    # Добавляем в очередь
+    if ! grep -q "^$ip$" "$L7_SYNC_QUEUE" 2>/dev/null; then
+        echo "$ip" >> "$L7_SYNC_QUEUE"
+    fi
+}
+
+# Полная синхронизация с GitHub
+github_full_sync() {
+    init_github_sync
+    
+    log_step "Синхронизация с GitHub..."
+    
+    # Проверяем подключение к GitHub
+    if ! check_github_connection; then
+        log_error "Синхронизация невозможна - проверьте подключение и PAT"
+        return 1
+    fi
+    
+    local backend=$(detect_firewall)
+    local added=0
+    local uploaded=0
+    
+    # 1. Скачиваем IP из GitHub
+    log_step "Загрузка IP из общей базы..."
+    local remote_ips=$(github_download_ips 2>/dev/null)
+    local remote_count=$(echo "$remote_ips" | grep -c "^[0-9]" || echo 0)
+    
+    if [[ $remote_count -gt 0 ]]; then
+        log_info "Получено $remote_count IP из GitHub"
+        
+        # Добавляем в локальный blacklist
+        while IFS= read -r ip; do
+            [[ -z "$ip" ]] && continue
+            
+            # Проверяем не в whitelist
+            if grep -q "^$ip$" "$L7_WHITELIST" 2>/dev/null; then
+                continue
+            fi
+            
+            # Добавляем в файл если нет
+            if ! grep -q "^$ip$" "$L7_BLACKLIST" 2>/dev/null; then
+                echo "$ip" >> "$L7_BLACKLIST"
+                ((added++))
+            fi
+            
+            # Добавляем в ipset/nftables
+            if [[ "$backend" == "nftables" ]]; then
+                nft_add_to_set "blacklist" "$ip" 2>/dev/null
+            else
+                ipset add "$IPSET_BLACKLIST" "$ip" 2>/dev/null
+            fi
+            
+            # Помечаем как синхронизированный
+            echo "$ip" >> "$L7_SYNCED_IPS"
+        done <<< "$remote_ips"
+        
+        # Удаляем дубликаты в synced_ips
+        sort -u "$L7_SYNCED_IPS" -o "$L7_SYNCED_IPS" 2>/dev/null
+    fi
+    
+    # 2. Отправляем наши новые IP в GitHub
+    if [[ -s "$L7_SYNC_QUEUE" ]]; then
+        local queue_ips=$(cat "$L7_SYNC_QUEUE" | sort -u)
+        local queue_count=$(echo "$queue_ips" | grep -c "^[0-9]" || echo 0)
+        
+        if [[ $queue_count -gt 0 ]]; then
+            if github_upload_ips "$queue_ips"; then
+                # Перемещаем из очереди в synced
+                cat "$L7_SYNC_QUEUE" >> "$L7_SYNCED_IPS"
+                sort -u "$L7_SYNCED_IPS" -o "$L7_SYNCED_IPS"
+                > "$L7_SYNC_QUEUE"
+                uploaded=$queue_count
+            fi
+        fi
+    fi
+    
+    # 3. Сохраняем время последней синхронизации
+    date '+%Y-%m-%d %H:%M:%S' > "$L7_LAST_SYNC"
+    
+    log_info "Sync: +$added локально, +$uploaded в GitHub"
+}
+
+# Скрипт для cron синхронизации
+create_github_sync_cron() {
+    local sync_script="/opt/server-shield/scripts/l7-github-sync.sh"
+    
+    mkdir -p "$(dirname "$sync_script")"
+    
+    cat > "$sync_script" << 'SCRIPT'
+#!/bin/bash
+#
+# L7 Shield - GitHub IP Sync
+# Автоматическая синхронизация blacklist
+#
+
+source /opt/server-shield/modules/utils.sh 2>/dev/null
+source /opt/server-shield/modules/l7shield.sh 2>/dev/null
+
+# Выполняем синхронизацию
+github_full_sync >> /opt/server-shield/logs/github_sync.log 2>&1
+SCRIPT
+    
+    chmod +x "$sync_script"
+    
+    # Добавляем в cron (каждые 12 часов)
+    local cron_line="0 */12 * * * root $sync_script"
+    if ! grep -q "l7-github-sync" "$L7_CRON" 2>/dev/null; then
+        echo "$cron_line" >> "$L7_CRON"
+    fi
+    
+    log_info "GitHub sync cron настроен (каждые 12 ч)"
+}
+
+# Показать статус синхронизации
+show_github_sync_status() {
+    echo ""
+    echo -e "    ${WHITE}GitHub Sync Status:${NC}"
+    echo ""
+    
+    # Последняя синхронизация
+    if [[ -f "$L7_LAST_SYNC" ]]; then
+        local last=$(cat "$L7_LAST_SYNC")
+        show_info "Последняя синхронизация" "$last"
+    else
+        show_status_line "Синхронизация" "off" "Не выполнялась"
+    fi
+    
+    # Очередь на отправку
+    local queue_count=0
+    [[ -f "$L7_SYNC_QUEUE" ]] && queue_count=$(grep -c "^[0-9]" "$L7_SYNC_QUEUE" 2>/dev/null || echo 0)
+    show_info "В очереди на отправку" "$queue_count IP"
+    
+    # Всего синхронизировано
+    local synced_count=0
+    [[ -f "$L7_SYNCED_IPS" ]] && synced_count=$(grep -c "^[0-9]" "$L7_SYNCED_IPS" 2>/dev/null || echo 0)
+    show_info "Всего синхронизировано" "$synced_count IP"
+    
+    # Локальный blacklist
+    local local_count=0
+    [[ -f "$L7_BLACKLIST" ]] && local_count=$(grep -c "^[0-9]" "$L7_BLACKLIST" 2>/dev/null || echo 0)
+    show_info "Локальный blacklist" "$local_count IP"
+    
+    # Статус cron
+    if grep -q "l7-github-sync" "$L7_CRON" 2>/dev/null; then
+        show_status_line "Auto-sync" "on" "каждые 12 ч"
+    else
+        show_status_line "Auto-sync" "off"
+    fi
+}
+
+# Меню GitHub Sync
+github_sync_menu() {
+    while true; do
+        print_header_mini "GitHub IP Sync"
+        
+        show_github_sync_status
+        
+        echo ""
+        print_divider
+        echo ""
+        
+        menu_item "1" "Синхронизировать сейчас"
+        menu_item "2" "Показать очередь на отправку"
+        menu_item "3" "Показать последние синхронизированные"
+        menu_divider
+        
+        if grep -q "l7-github-sync" "$L7_CRON" 2>/dev/null; then
+            menu_item "4" "Выключить auto-sync"
+        else
+            menu_item "4" "Включить auto-sync"
+        fi
+        
+        menu_item "5" "Просмотр лога синхронизации"
+        menu_divider
+        menu_item "0" "Назад"
+        
+        echo ""
+        echo -e "    ${DIM}Репозиторий: github.com/${GITHUB_REPO}${NC}"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
+            1)
+                github_full_sync
+                press_any_key
+                ;;
+            2)
+                echo ""
+                echo -e "    ${WHITE}Очередь на отправку:${NC}"
+                if [[ -s "$L7_SYNC_QUEUE" ]]; then
+                    head -20 "$L7_SYNC_QUEUE" | while read ip; do
+                        echo -e "    ${YELLOW}$ip${NC}"
+                    done
+                    local total=$(wc -l < "$L7_SYNC_QUEUE")
+                    [[ $total -gt 20 ]] && echo -e "    ${DIM}... и ещё $((total-20))${NC}"
+                else
+                    echo -e "    ${DIM}Пусто${NC}"
+                fi
+                press_any_key
+                ;;
+            3)
+                echo ""
+                echo -e "    ${WHITE}Последние синхронизированные:${NC}"
+                if [[ -s "$L7_SYNCED_IPS" ]]; then
+                    tail -20 "$L7_SYNCED_IPS" | while read ip; do
+                        echo -e "    ${GREEN}$ip${NC}"
+                    done
+                else
+                    echo -e "    ${DIM}Пусто${NC}"
+                fi
+                press_any_key
+                ;;
+            4)
+                if grep -q "l7-github-sync" "$L7_CRON" 2>/dev/null; then
+                    sed -i '/l7-github-sync/d' "$L7_CRON"
+                    log_info "Auto-sync выключен"
+                else
+                    create_github_sync_cron
+                fi
+                press_any_key
+                ;;
+            5)
+                echo ""
+                if [[ -f "/opt/server-shield/logs/github_sync.log" ]]; then
+                    tail -30 "/opt/server-shield/logs/github_sync.log"
+                else
+                    log_warn "Лог пуст"
                 fi
                 press_any_key
                 ;;
@@ -1932,6 +2348,9 @@ check_and_ban() {
                 ipset add "$IPSET_AUTOBAN" "$ip" timeout "$ban_time" 2>/dev/null
                 log_l7 "AUTOBAN | $ip | connections: $count > $threshold"
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | AUTOBAN | $ip | connections: $count" >> "$BAN_LOG"
+                
+                # Добавляем в очередь на GitHub sync
+                echo "$ip" >> "/opt/server-shield/config/l7shield/sync_queue.txt"
             fi
         fi
     done
@@ -1953,15 +2372,18 @@ check_and_ban() {
                 ipset add "$IPSET_AUTOBAN" "$ip" timeout "$ban_time" 2>/dev/null
                 log_l7 "AUTOBAN | $ip | requests/min: $count > $rate_threshold"
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | AUTOBAN | $ip | http_flood: $count req/min" >> "$BAN_LOG"
+                
+                # Добавляем в очередь на GitHub sync
+                echo "$ip" >> "/opt/server-shield/config/l7shield/sync_queue.txt"
             fi
         fi
     done
 }
 
-# Обновление blacklist URL (раз в N часов)
+# Обновление blacklist (GitHub sync каждые N часов)
 check_blacklist_update() {
     local last_update_file="/opt/server-shield/config/l7shield/last_blacklist_update"
-    local interval="${BLACKLIST_UPDATE_INTERVAL:-6}"
+    local interval="${BLACKLIST_UPDATE_INTERVAL:-1}"  # По умолчанию каждый час
     local interval_sec=$((interval * 3600))
     
     local last_update=0
@@ -1971,8 +2393,9 @@ check_blacklist_update() {
     local diff=$((now - last_update))
     
     if [[ $diff -gt $interval_sec ]]; then
-        log_l7 "BLACKLIST_UPDATE | Starting scheduled update"
-        /opt/server-shield/modules/l7shield.sh update_blacklists
+        log_l7 "GITHUB_SYNC | Starting scheduled sync"
+        /opt/server-shield/modules/l7shield.sh sync
+        date +%s > "$last_update_file"
     fi
 }
 
@@ -2001,8 +2424,8 @@ create_l7_cron() {
 # Проверка каждую минуту
 * * * * * root $L7_SCRIPT check
 
-# Обновление blacklist каждые 6 часов
-0 */6 * * * root $L7_SCRIPT update
+# GitHub sync каждый час
+0 * * * * root $L7_SCRIPT update
 CRON
 
     systemctl reload cron 2>/dev/null
@@ -2092,6 +2515,12 @@ enable_l7() {
     create_autoban_script
     create_l7_cron
     create_l7_service
+    
+    # GitHub Sync - настраиваем автосинхронизацию и первый sync
+    init_github_sync
+    create_github_sync_cron
+    log_step "Синхронизация IP с GitHub..."
+    github_full_sync
     
     # Включаем сервис
     systemctl enable shield-l7 2>/dev/null
@@ -2397,113 +2826,128 @@ vpn_ports_menu() {
     done
 }
 
-# Меню blacklist
+# Меню blacklist (GitHub-powered)
 blacklist_menu() {
     while true; do
-        print_header
-        print_section "🚫 Blacklist"
+        print_header_mini "IP Blacklist (GitHub Sync)"
         
-        local blacklist_count=$(ipset list "$IPSET_BLACKLIST" 2>/dev/null | grep -c "^[0-9]" || echo 0)
-        local urls_count=$(grep -v "^#" "$L7_BLACKLIST_URLS" 2>/dev/null | grep -v "^$" | wc -l)
+        local backend=$(detect_firewall)
+        local blacklist_count=0
+        local queue_count=0
+        local synced_count=0
         
-        echo ""
-        echo -e "  ${WHITE}IP в blacklist:${NC} ${RED}$blacklist_count${NC}"
-        echo -e "  ${WHITE}URL источников:${NC} ${CYAN}$urls_count${NC}"
-        echo ""
-        
-        # Показываем URLs
-        if [[ $urls_count -gt 0 ]]; then
-            echo -e "${WHITE}Источники blacklist:${NC}"
-            local i=1
-            while IFS= read -r url; do
-                [[ "$url" =~ ^# ]] && continue
-                [[ -z "$url" ]] && continue
-                echo -e "  ${WHITE}$i)${NC} ${CYAN}${url:0:60}...${NC}"
-                ((i++))
-            done < "$L7_BLACKLIST_URLS"
-            echo ""
+        # Получаем статистику
+        if [[ "$backend" == "nftables" ]]; then
+            blacklist_count=$(nft_list_set "blacklist" 2>/dev/null | wc -l)
+        else
+            blacklist_count=$(ipset list "$IPSET_BLACKLIST" 2>/dev/null | grep -c "^[0-9]" || echo 0)
         fi
         
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo -e "  ${WHITE}1)${NC} Добавить IP вручную"
-        echo -e "  ${WHITE}2)${NC} Удалить IP"
-        echo -e "  ${WHITE}3)${NC} Показать все IP"
-        echo ""
-        echo -e "  ${WHITE}4)${NC} Добавить URL источник"
-        echo -e "  ${WHITE}5)${NC} Удалить URL источник"
-        echo -e "  ${WHITE}6)${NC} ${GREEN}Обновить из всех URL${NC}"
-        echo ""
-        echo -e "  ${WHITE}7)${NC} Очистить весь blacklist"
-        echo -e "  ${WHITE}0)${NC} Назад"
-        echo ""
-        read -p "Выбор: " choice
+        [[ -f "$L7_SYNC_QUEUE" ]] && queue_count=$(grep -c "^[0-9]" "$L7_SYNC_QUEUE" 2>/dev/null || echo 0)
+        [[ -f "$L7_SYNCED_IPS" ]] && synced_count=$(grep -c "^[0-9]" "$L7_SYNCED_IPS" 2>/dev/null || echo 0)
         
-        case $choice in
+        # Статус блок
+        echo -e "    ${DIM}┌──────────────────────────────────────────────────────┐${NC}"
+        echo -e "    ${DIM}│${NC} ${RED}Заблокировано:${NC} ${WHITE}$blacklist_count${NC} IP                             ${DIM}│${NC}"
+        echo -e "    ${DIM}│${NC} ${YELLOW}В очереди:${NC} ${WHITE}$queue_count${NC} │ ${GREEN}Синхронизировано:${NC} ${WHITE}$synced_count${NC}        ${DIM}│${NC}"
+        echo -e "    ${DIM}│${NC} ${CYAN}Repo:${NC} github.com/${GITHUB_REPO}                     ${DIM}│${NC}"
+        echo -e "    ${DIM}└──────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        # Последняя синхронизация
+        if [[ -f "$L7_LAST_SYNC" ]]; then
+            local last_sync=$(cat "$L7_LAST_SYNC")
+            show_info "Последняя синхронизация" "$last_sync"
+        fi
+        
+        echo ""
+        print_divider
+        echo ""
+        
+        menu_item "1" "Добавить IP в blacklist"
+        menu_item "2" "Удалить IP из blacklist"
+        menu_item "3" "Показать заблокированные IP"
+        menu_divider
+        menu_item "4" "${GREEN}Синхронизировать с GitHub${NC}"
+        menu_item "5" "Показать очередь на отправку"
+        menu_divider
+        menu_item "6" "Очистить локальный blacklist"
+        menu_divider
+        menu_item "0" "Назад"
+        
+        echo ""
+        echo -e "    ${DIM}Все забаненные IP автоматически отправляются${NC}"
+        echo -e "    ${DIM}в общую базу GitHub каждые 12 часов${NC}"
+        
+        local choice=$(read_choice)
+        
+        case "${choice,,}" in
             1)
                 echo ""
-                read -p "IP для блокировки: " ip
-                if validate_ip "$ip"; then
-                    add_to_blacklist "$ip" "manual"
+                echo -ne "    ${WHITE}IP для блокировки:${NC} "
+                read -r ip
+                if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    add_ip_to_global_blacklist "$ip" "manual"
                 else
-                    log_error "Неверный IP"
+                    log_error "Неверный IP адрес"
                 fi
+                press_any_key
                 ;;
             2)
                 echo ""
-                read -p "IP для разблокировки: " ip
-                remove_from_blacklist "$ip"
+                echo -ne "    ${WHITE}IP для разблокировки:${NC} "
+                read -r ip
+                if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    remove_ip_from_blacklist "$ip"
+                else
+                    log_error "Неверный IP адрес"
+                fi
+                press_any_key
                 ;;
             3)
                 echo ""
-                echo -e "${WHITE}Все IP в blacklist:${NC}"
-                ipset list "$IPSET_BLACKLIST" 2>/dev/null | grep "^[0-9]" | head -50
+                echo -e "    ${WHITE}Заблокированные IP (первые 50):${NC}"
                 echo ""
-                echo -e "${YELLOW}(показано первые 50)${NC}"
+                if [[ "$backend" == "nftables" ]]; then
+                    nft_list_set "blacklist" 2>/dev/null | head -50 | while read ip; do
+                        echo -e "    ${RED}●${NC} $ip"
+                    done
+                else
+                    ipset list "$IPSET_BLACKLIST" 2>/dev/null | grep "^[0-9]" | head -50 | while read ip; do
+                        echo -e "    ${RED}●${NC} $ip"
+                    done
+                fi
+                [[ $blacklist_count -gt 50 ]] && echo -e "    ${DIM}... и ещё $((blacklist_count - 50)) IP${NC}"
+                press_any_key
                 ;;
             4)
                 echo ""
-                echo -e "${WHITE}Популярные источники:${NC}"
-                echo -e "  1) https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http"
-                echo -e "  2) https://openproxylist.xyz/http.txt"
-                echo -e "  3) https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt"
-                echo ""
-                read -p "URL (или номер): " url
-                
-                case "$url" in
-                    1) url="https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all" ;;
-                    2) url="https://openproxylist.xyz/http.txt" ;;
-                    3) url="https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt" ;;
-                esac
-                
-                if [[ "$url" =~ ^https?:// ]]; then
-                    add_blacklist_url "$url"
-                else
-                    log_error "Неверный URL"
-                fi
+                github_full_sync
+                press_any_key
                 ;;
             5)
                 echo ""
-                read -p "Номер URL для удаления: " num
-                local url_to_del=$(grep -v "^#" "$L7_BLACKLIST_URLS" | grep -v "^$" | sed -n "${num}p")
-                if [[ -n "$url_to_del" ]]; then
-                    remove_blacklist_url "$url_to_del"
+                echo -e "    ${WHITE}Очередь на отправку в GitHub:${NC}"
+                echo ""
+                if [[ -s "$L7_SYNC_QUEUE" ]]; then
+                    head -20 "$L7_SYNC_QUEUE" | while read ip; do
+                        echo -e "    ${YELLOW}→${NC} $ip"
+                    done
+                    [[ $queue_count -gt 20 ]] && echo -e "    ${DIM}... и ещё $((queue_count - 20)) IP${NC}"
+                else
+                    echo -e "    ${DIM}Очередь пуста${NC}"
                 fi
+                press_any_key
                 ;;
             6)
-                update_blacklists_from_urls
-                ;;
-            7)
-                if confirm "Очистить весь blacklist?" "n"; then
-                    ipset flush "$IPSET_BLACKLIST" 2>/dev/null
-                    echo "# IP blacklist" > "$L7_BLACKLIST"
-                    log_info "Blacklist очищен"
+                if confirm_action "Очистить локальный blacklist?" "n"; then
+                    clear_local_blacklist
+                    log_warn "GitHub база не затронута"
                 fi
+                press_any_key
                 ;;
-            0) return ;;
+            0|q) return ;;
         esac
-        
-        press_any_key
     done
 }
 
@@ -2805,6 +3249,7 @@ l7_menu() {
         menu_item "n" "Nginx защита"
         menu_item "f" "Fail2Ban L7"
         menu_item "b" "Firewall Backend ($backend)"
+        menu_item "g" "GitHub IP Sync"
         menu_item "l" "Логи банов"
         menu_divider
         menu_item "0" "Назад"
@@ -2842,6 +3287,7 @@ l7_menu() {
             n) nginx_menu ;;
             f) fail2ban_l7_menu ;;
             b) firewall_backend_menu ;;
+            g) github_sync_menu ;;
             l)
                 echo ""
                 if [[ -f "$L7_BAN_LOG" ]]; then
@@ -3769,7 +4215,7 @@ setup_blocklist_sync() {
 #!/bin/bash
 #
 # L7 Shield - Синхронизация ipset <-> nginx geo blocklist
-# Запускается по cron каждые 5 минут
+# Запускается по cron каждые 12 часов
 #
 
 IPSET_BLACKLIST="l7_blacklist"
@@ -3845,7 +4291,7 @@ SCRIPT
     chmod +x "$L7_SYNC_SCRIPT"
     
     # Добавляем в cron
-    local cron_line="*/5 * * * * root $L7_SYNC_SCRIPT"
+    local cron_line="0 */12 * * * root $L7_SYNC_SCRIPT"
     if ! grep -q "l7-sync-blocklist" "$L7_CRON" 2>/dev/null; then
         echo "$cron_line" >> "$L7_CRON"
     fi
@@ -3857,7 +4303,7 @@ SCRIPT
     echo ""
     echo -e "${WHITE}Синхронизация:${NC}"
     echo -e "  ipset blacklist/autoban → nginx geo blocklist"
-    echo -e "  Интервал: каждые 5 минут"
+    echo -e "  Интервал: каждые 12 часов"
     echo ""
     echo -e "${WHITE}Скрипт:${NC} ${CYAN}$L7_SYNC_SCRIPT${NC}"
     echo ""
@@ -4937,17 +5383,18 @@ nginx_menu() {
     done
 }
 
-# CLI обработка
-case "${1:-}" in
-    enable) enable_l7 ;;
-    disable) disable_l7 ;;
-    reload) reload_l7 ;;
-    status) show_l7_status ;;
-    start_silent) start_silent ;;
-    stop_silent) stop_silent ;;
-    reload_silent) reload_silent ;;
-    update_blacklists) update_blacklists_from_urls ;;
-    sync_blocklist) force_blocklist_sync ;;
-    menu|"") l7_menu ;;
-    *) echo "Usage: $0 {enable|disable|reload|status|sync_blocklist|menu}" ;;
-esac
+# CLI обработка (только при прямом запуске, не при source)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-}" in
+        enable) enable_l7 ;;
+        disable) disable_l7 ;;
+        reload) reload_l7 ;;
+        status) show_l7_status ;;
+        start_silent) start_silent ;;
+        stop_silent) stop_silent ;;
+        reload_silent) reload_silent ;;
+        sync|sync_blocklist|github_sync) github_full_sync ;;
+        menu|"") l7_menu ;;
+        *) echo "Usage: $0 {enable|disable|reload|status|sync|menu}" ;;
+    esac
+fi

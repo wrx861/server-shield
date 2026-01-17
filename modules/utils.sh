@@ -320,8 +320,8 @@ get_server_name() {
 
 # Чтение ввода с валидацией
 read_choice() {
-    echo ""
-    echo -ne "    ${WHITE}▸${NC} "
+    echo "" >&2
+    echo -ne "    ${WHITE}▸${NC} " >&2
     read -r REPLY
     echo "$REPLY"
 }
