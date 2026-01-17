@@ -35,28 +35,12 @@ main_menu() {
         
         echo -e "    ${WHITE}ЗАЩИТА${NC}                        ${WHITE}УТИЛИТЫ${NC}"
         echo ""
-        menu_item "1" "Firewall (UFW)"        
-        echo -ne "           "
-        menu_item "7" "Telegram"
-        echo ""
-        menu_item "2" "Fail2Ban"              
-        echo -ne "                "
-        menu_item "8" "Бэкапы"
-        echo ""
-        menu_item "3" "DDoS Protection"       
-        echo -ne "           "
-        menu_item "9" "Логи"
-        echo ""
-        menu_item "4" "SSH Security"          
-        echo -ne "              "
-        menu_item "m" "Мониторинг"
-        echo ""
-        menu_item "5" "SSH Ключи"             
-        echo -ne "                 "
-        menu_item "s" "Полный статус"
-        echo ""
-        menu_item "6" "Traffic Control"
-        echo ""
+        echo -e "    ${CYAN}[1]${NC} Firewall (UFW)          ${CYAN}[7]${NC} Telegram"
+        echo -e "    ${CYAN}[2]${NC} Fail2Ban                ${CYAN}[8]${NC} Бэкапы"
+        echo -e "    ${CYAN}[3]${NC} DDoS Protection         ${CYAN}[9]${NC} Логи"
+        echo -e "    ${CYAN}[4]${NC} SSH Security            ${CYAN}[m]${NC} Мониторинг"
+        echo -e "    ${CYAN}[5]${NC} SSH Ключи               ${CYAN}[s]${NC} Полный статус"
+        echo -e "    ${CYAN}[6]${NC} Traffic Control"
         
         menu_divider
         
@@ -79,9 +63,7 @@ main_menu() {
         fi
         
         echo ""
-        menu_item_dim "r" "Перенастроить"
-        echo -ne "            "
-        menu_item_dim "0" "Выход"
+        echo -e "    ${DIM}[r]${NC} Перенастроить           ${DIM}[0]${NC} Выход"
         
         echo ""
         print_divider
